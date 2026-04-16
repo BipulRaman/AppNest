@@ -45,17 +45,10 @@
 
         <div class="field">
           <label for="fName">Application Name</label>
-          <input type="text" id="fName" required placeholder="e.g. my-web-api"/>
+          <input type="text" id="fName" required/>
         </div>
 
         <div class="field-row">
-          <div class="field grow">
-            <label for="fDir">Project Directory</label>
-            <div class="field-with-btn">
-              <input type="text" id="fDir" required placeholder="e.g. D:\Projects\my-app"/>
-              <button type="button" class="browse-btn" onclick="pickFolder('fDir')">Browse</button>
-            </div>
-          </div>
           <div class="field" style="width:140px">
             <label for="fType">Type</label>
             <select id="fType">
@@ -67,6 +60,13 @@
               <option value="vue">Vue</option>
               <option value="express">Express</option>
             </select>
+          </div>
+          <div class="field grow">
+            <label for="fDir">Project Directory</label>
+            <div class="field-with-btn">
+              <input type="text" id="fDir" required/>
+              <button type="button" class="browse-btn" onclick="pickFolder('fDir')">Browse</button>
+            </div>
           </div>
         </div>
 
@@ -81,33 +81,29 @@
           </div>
           <div class="field" style="width:100px">
             <label for="fPort">Port</label>
-            <input type="number" id="fPort" placeholder="3000"/>
-          </div>
-          <div class="field grow" id="fRunWrap">
-            <label for="fRun">Run Command</label>
-            <input type="text" id="fRun" placeholder="e.g. node dist/index.js"/>
+            <input type="number" id="fPort"/>
           </div>
           <div class="field grow hidden" id="fStaticWrap">
             <label for="fStatic">Static Folder</label>
-            <input type="text" id="fStatic" placeholder="e.g. ./build"/>
+            <input type="text" id="fStatic"/>
           </div>
           <div class="field grow hidden" id="fScriptWrap">
             <label for="fScript">Script File</label>
             <div class="field-with-btn">
-              <input type="text" id="fScript" placeholder="e.g. start.ps1 or run.bat"/>
+              <input type="text" id="fScript"/>
               <button type="button" class="browse-btn" onclick="pickScript()">Browse</button>
             </div>
           </div>
         </div>
 
         <div class="field">
-          <label for="fBuild">Build Steps <span class="field-hint">one command per line — runs before start</span></label>
-          <textarea id="fBuild" rows="3" placeholder="npm install&#10;npm run build"></textarea>
+          <label for="fBuild">Build &amp; Run Command <span class="field-hint">one command per line — last line is the run command</span></label>
+          <textarea id="fBuild" rows="4"></textarea>
         </div>
 
         <div class="field">
           <label for="fEnv">Environment Variables <span class="field-hint">KEY=VALUE per line</span></label>
-          <textarea id="fEnv" rows="2" placeholder="NODE_ENV=production"></textarea>
+          <textarea id="fEnv" rows="2"></textarea>
         </div>
 
         <label class="switch-row">

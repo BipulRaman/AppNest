@@ -47,13 +47,13 @@ const IC = {
 
 // ─── Presets ────────────────────────────────────────
 const presets = {
-  dotnet:  { build: 'dotnet restore\ndotnet build -c Release\ndotnet publish -c Release -o ./publish', run: 'dotnet ./publish/MyApp.dll', port: 5000, env: 'ASPNETCORE_ENVIRONMENT=Production', serve: 'command', static: '' },
-  node:    { build: 'npm install\nnpm run build', run: 'node dist/index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
-  react:   { build: 'npm install\nnpm run build', run: '', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './build' },
-  nextjs:  { build: 'npm install\nnpm run build', run: 'npm start', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
-  angular: { build: 'npm install\nnpm run build -- --configuration production', run: '', port: 4200, env: 'NODE_ENV=production', serve: 'static', static: './dist/my-app' },
-  vue:     { build: 'npm install\nnpm run build', run: '', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './dist' },
-  express: { build: 'npm install', run: 'node index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
+  dotnet:  { build: 'dotnet restore\ndotnet build -c Release\ndotnet publish -c Release -o ./publish\ndotnet ./publish/MyApp.dll', port: 5000, env: 'ASPNETCORE_ENVIRONMENT=Production', serve: 'command', static: '' },
+  node:    { build: 'npm install\nnpm run build\nnode dist/index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
+  react:   { build: 'npm install\nnpm run build', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './build' },
+  nextjs:  { build: 'npm install\nnpm run build\nnpm start', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
+  angular: { build: 'npm install\nnpm run build -- --configuration production', port: 4200, env: 'NODE_ENV=production', serve: 'static', static: './dist/my-app' },
+  vue:     { build: 'npm install\nnpm run build', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './dist' },
+  express: { build: 'npm install\nnode index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
 };
 
 // ─── Render App List ────────────────────────────────
@@ -152,14 +152,13 @@ async function deleteApp(id) {
 
 // ─── Add / Edit Form ────────────────────────────────
 const $form = document.getElementById('appForm');
-const ids = { id: 'fId', name: 'fName', type: 'fType', dir: 'fDir', serve: 'fServe', port: 'fPort', run: 'fRun', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto' };
+const ids = { id: 'fId', name: 'fName', type: 'fType', dir: 'fDir', serve: 'fServe', port: 'fPort', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto' };
 const $ = Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, document.getElementById(v)]));
 
 function applyPreset() {
   const p = presets[$.type.value];
   if (!p) return;
   $.build.value = p.build;
-  $.run.value = p.run;
   $.port.value = p.port;
   $.env.value = p.env;
   $.serve.value = p.serve;
@@ -169,7 +168,6 @@ function applyPreset() {
 
 function toggleServe() {
   const mode = $.serve.value;
-  document.getElementById('fRunWrap').classList.toggle('hidden', mode !== 'command');
   document.getElementById('fStaticWrap').classList.toggle('hidden', mode !== 'static');
   document.getElementById('fScriptWrap').classList.toggle('hidden', mode !== 'script');
 }
@@ -199,8 +197,9 @@ async function editApp(id) {
   $.dir.value = a.projectDir;
   $.type.value = a.type;
   $.port.value = a.port || '';
-  $.build.value = (a.buildSteps || []).join('\n');
-  $.run.value = a.runCommand || '';
+  const buildLines = (a.buildSteps || []).slice();
+  if (a.runCommand) buildLines.push(a.runCommand);
+  $.build.value = buildLines.join('\n');
   $.static.value = a.staticDir || '';
   $.serve.value = a.scriptFile ? 'script' : a.staticDir ? 'static' : 'command';
   $.script.value = a.scriptFile || '';
@@ -226,12 +225,21 @@ function parseEnv(text) {
 $form.onsubmit = async (e) => {
   e.preventDefault();
   const mode = $.serve.value;
+  const allLines = $.build.value.split('\n').map(s => s.trim()).filter(Boolean);
+  let buildSteps, runCommand;
+  if (mode === 'command' && allLines.length > 0) {
+    buildSteps = allLines.slice(0, -1);
+    runCommand = allLines[allLines.length - 1];
+  } else {
+    buildSteps = allLines;
+    runCommand = null;
+  }
   const payload = {
     name: $.name.value.trim(),
     projectDir: $.dir.value.trim(),
     projectType: $.type.value,
-    buildSteps: $.build.value.split('\n').map(s => s.trim()).filter(Boolean),
-    runCommand: mode === 'command' ? ($.run.value.trim() || null) : null,
+    buildSteps: buildSteps,
+    runCommand: runCommand,
     staticDir: mode === 'static' ? ($.static.value.trim() || null) : null,
     scriptFile: mode === 'script' ? ($.script.value.trim() || null) : null,
     port: $.port.value ? +$.port.value : null,
