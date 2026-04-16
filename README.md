@@ -1,26 +1,30 @@
 # MyServers
 
-A lightweight desktop application for managing local web application hosting. Build, run, and monitor your .NET, Node.js, React, Angular, Vue, and other projects from a single dashboard.
+A developer productivity tool for managing and hosting local web applications. Build, run, and monitor all your projects — .NET, Node.js, React, Angular, Vue, and more — from a single lightweight dashboard.
+
+Stop juggling terminals. One app to build, host, and watch them all.
 
 **Single 2MB executable. No runtime dependencies. System tray integration. Built with Rust.**
 
 ---
 
+## Screenshot
+
+![MyServers Dashboard](Dashboard.png)
+
 ## Features
 
-- **One-click hosting** — Add your project, pick a type, and hit Start. Build steps run automatically.
-- **Multi-framework support** — .NET, Node.js, React, Next.js, Angular, Vue, Express with smart presets.
+- **One-click build & run** — Add your project, pick a type, and hit Start. Build steps and run command execute automatically.
+- **Local hosting manager** — Host multiple apps on different ports simultaneously from one place.
+- **Multi-framework presets** — .NET, Node.js, React, Next.js, Angular, Vue, Express with smart defaults (customizable via `presets.json`).
 - **Static file serving** — Serve React/Angular/Vue build output directly without extra tools.
+- **Live logs with color** — Runtime and build output with clickable URLs, timestamped lines, and color-coded errors/warnings.
 - **System tray** — Runs in background. Start All, Stop All, or Quit from the tray menu.
 - **Auto-start** — Flag apps to start automatically when MyServers launches.
-- **Persistent logs** — Runtime and build output viewable in-app, with file-based logs you can export.
+- **Persistent logs** — Export or copy logs. File-based logs stored per app with timestamps.
 - **Native file dialogs** — Windows folder/file picker for selecting project directories.
 - **Zero config** — No YAML, no Docker, no config files. Everything is configured through the UI.
 - **Portable** — Single `.exe` with all HTML/CSS/JS embedded. App data stored in `%APPDATA%\MyServers\`.
-
-## Screenshot
-
-> _Add a screenshot of the dashboard here._
 
 ## Quick Start
 
@@ -39,11 +43,10 @@ Each application you add has:
 |-------|-------------|
 | **Name** | Display name for the dashboard |
 | **Project Directory** | Folder where all commands run (Browse to select) |
-| **Type** | .NET, Node.js, React, Next.js, Angular, Vue, Express |
-| **Serve Mode** | `Command` (run a process) or `Static Folder` (serve files directly) |
+| **Type** | .NET, Node.js, React, Next.js, Angular, Vue, Express (driven by `presets.json`) |
+| **Serve Mode** | `Command` (run a process), `Static Folder` (serve files), or `Script File` |
 | **Port** | Port number — auto-injected as `PORT` env var (or `ASPNETCORE_URLS` for .NET) |
-| **Build Steps** | Commands that run before start (e.g. `npm install`, `npm run build`) |
-| **Run Command** | The process to keep running (e.g. `node dist/index.js`) |
+| **Build & Run Command** | Commands that run in order — last line is the run command (for Command mode) |
 | **Environment Variables** | KEY=VALUE pairs passed to the process |
 | **Auto-start** | Start this app automatically when MyServers launches |
 
@@ -77,6 +80,7 @@ For React, Angular, and Vue apps, select **Static Folder** as serve mode and poi
 ## Building
 
 ```powershell
+cd app
 $env:PATH = "C:\msys64\mingw64\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
 cargo build --release
 ```
@@ -86,7 +90,7 @@ cargo build --release
 The only file you need from the build:
 
 ```
-target\release\myservers.exe    (≈2 MB)
+app\target\release\myservers.exe    (≈2 MB)
 ```
 
 That's it — **single file, no DLLs, no config files, no supporting files**. The HTML, CSS, and JS are compiled into the binary. Copy the exe anywhere and run it. App data is created automatically at `%APPDATA%\MyServers\` on first launch.
@@ -95,15 +99,22 @@ That's it — **single file, no DLLs, no config files, no supporting files**. Th
 
 ```
 MyServers/
-├── Cargo.toml          # Rust dependencies and config
-├── src/
-│   ├── main.rs         # Entry point, system tray, event loop
-│   ├── manager.rs      # App lifecycle, process management, logging
-│   └── server.rs       # HTTP API (axum), embedded frontend, file dialogs
-└── public/
-    ├── index.html      # Dashboard UI
-    ├── style.css       # Styles
-    └── app.js          # Frontend logic
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── Dashboard.png
+├── .github/workflows/build.yml
+└── app/
+    ├── Cargo.toml        # Rust dependencies and config
+    ├── src/
+    │   ├── main.rs       # Entry point, system tray, event loop
+    │   ├── manager.rs    # App lifecycle, process management, logging
+    │   └── server.rs     # HTTP API (axum), embedded frontend, file dialogs
+    └── public/
+        ├── index.html    # Dashboard UI
+        ├── style.css     # Styles
+        ├── app.js        # Frontend logic
+        └── presets.json  # App type presets (customizable)
 ```
 
 **At build time**, the `public/` folder is compiled into the binary via `rust-embed`. The final exe has no external file dependencies.
