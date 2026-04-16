@@ -262,6 +262,8 @@ impl AppManager {
             cmd.envs(&env);
             cmd.stdout(std::process::Stdio::piped());
             cmd.stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            { cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
 
             let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
@@ -373,7 +375,7 @@ impl AppManager {
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
         #[cfg(windows)]
-        { cmd.creation_flags(0x00000200); }
+        { cmd.creation_flags(0x08000200); } // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
 
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
         let pid = child.id().unwrap_or(0);
