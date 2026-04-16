@@ -83,6 +83,8 @@ struct AppReq {
     env_vars: HashMap<String, String>,
     #[serde(default)]
     auto_start: bool,
+    #[serde(default)]
+    script_file: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -129,6 +131,7 @@ async fn add_app(State(mgr): State<Arc<AppManager>>, Json(body): Json<AppReq>) -
         port: body.port,
         env_vars: body.env_vars,
         auto_start: body.auto_start,
+        script_file: body.script_file,
     };
     let id = mgr.add_app(entry);
     ok_id("Added", id)
@@ -146,6 +149,7 @@ async fn update_app(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>, Jso
         port: body.port,
         env_vars: body.env_vars,
         auto_start: body.auto_start,
+        script_file: body.script_file,
     };
     match mgr.update_app(id, entry) {
         Ok(()) => ok("Updated"),
@@ -241,6 +245,7 @@ async fn pick_file(Query(q): Query<PickQ>) -> impl IntoResponse {
     let path = tokio::task::spawn_blocking(move || {
         let mut d = rfd::FileDialog::new().set_title("Select File");
         if ext == "yml" { d = d.add_filter("YAML", &["yml", "yaml"]); }
+        else if ext == "script" { d = d.add_filter("Scripts", &["ps1", "bat", "cmd", "sh"]); }
         d.pick_file().map(|p| p.to_string_lossy().to_string())
     }).await.unwrap_or(None);
     Json(PickResp { path })

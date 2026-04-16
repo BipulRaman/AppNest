@@ -76,6 +76,7 @@
             <select id="fServe">
               <option value="command">Command</option>
               <option value="static">Static Folder</option>
+              <option value="script">Script File</option>
             </select>
           </div>
           <div class="field" style="width:100px">
@@ -89,6 +90,13 @@
           <div class="field grow hidden" id="fStaticWrap">
             <label for="fStatic">Static Folder</label>
             <input type="text" id="fStatic" placeholder="e.g. ./build"/>
+          </div>
+          <div class="field grow hidden" id="fScriptWrap">
+            <label for="fScript">Script File</label>
+            <div class="field-with-btn">
+              <input type="text" id="fScript" placeholder="e.g. start.ps1 or run.bat"/>
+              <button type="button" class="browse-btn" onclick="pickScript()">Browse</button>
+            </div>
           </div>
         </div>
 

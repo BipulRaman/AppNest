@@ -30,6 +30,11 @@ async function pickFolder(inputId) {
   if (r.path) document.getElementById(inputId).value = r.path;
 }
 
+async function pickScript() {
+  const r = await api('/api/pick-file?ext=script');
+  if (r.path) document.getElementById('fScript').value = r.path;
+}
+
 // ─── SVG Icons ──────────────────────────────────────
 const IC = {
   play:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
@@ -80,7 +85,7 @@ function renderRow(a) {
   const isUp = st === 'running';
   const isBuild = st === 'building';
 
-  const run = a.staticDir ? `Static · ${esc(a.staticDir)}` : esc(a.runCommand || '');
+  const run = a.scriptFile ? `Script · ${esc(a.scriptFile)}` : a.staticDir ? `Static · ${esc(a.staticDir)}` : esc(a.runCommand || '');
 
   return `
   <div class="app-row">
@@ -147,7 +152,7 @@ async function deleteApp(id) {
 
 // ─── Add / Edit Form ────────────────────────────────
 const $form = document.getElementById('appForm');
-const ids = { id: 'fId', name: 'fName', type: 'fType', dir: 'fDir', serve: 'fServe', port: 'fPort', run: 'fRun', static: 'fStatic', build: 'fBuild', env: 'fEnv', auto: 'fAuto' };
+const ids = { id: 'fId', name: 'fName', type: 'fType', dir: 'fDir', serve: 'fServe', port: 'fPort', run: 'fRun', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto' };
 const $ = Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, document.getElementById(v)]));
 
 function applyPreset() {
@@ -163,9 +168,10 @@ function applyPreset() {
 }
 
 function toggleServe() {
-  const isStatic = $.serve.value === 'static';
-  document.getElementById('fRunWrap').classList.toggle('hidden', isStatic);
-  document.getElementById('fStaticWrap').classList.toggle('hidden', !isStatic);
+  const mode = $.serve.value;
+  document.getElementById('fRunWrap').classList.toggle('hidden', mode !== 'command');
+  document.getElementById('fStaticWrap').classList.toggle('hidden', mode !== 'static');
+  document.getElementById('fScriptWrap').classList.toggle('hidden', mode !== 'script');
 }
 
 $.type.onchange = () => { if (!$.id.value) applyPreset(); };
@@ -175,6 +181,7 @@ document.getElementById('btnAdd').onclick = () => {
   $.id.value = '';
   $.name.value = '';
   $.dir.value = '';
+  $.script.value = '';
   $.auto.checked = false;
   $.type.value = 'dotnet';
   applyPreset();
@@ -195,7 +202,8 @@ async function editApp(id) {
   $.build.value = (a.buildSteps || []).join('\n');
   $.run.value = a.runCommand || '';
   $.static.value = a.staticDir || '';
-  $.serve.value = a.staticDir ? 'static' : 'command';
+  $.serve.value = a.scriptFile ? 'script' : a.staticDir ? 'static' : 'command';
+  $.script.value = a.scriptFile || '';
   $.env.value = Object.entries(a.envVars || {}).map(([k, v]) => `${k}=${v}`).join('\n');
   $.auto.checked = !!a.autoStart;
   toggleServe();
@@ -217,14 +225,15 @@ function parseEnv(text) {
 
 $form.onsubmit = async (e) => {
   e.preventDefault();
-  const isStatic = $.serve.value === 'static';
+  const mode = $.serve.value;
   const payload = {
     name: $.name.value.trim(),
     projectDir: $.dir.value.trim(),
     projectType: $.type.value,
     buildSteps: $.build.value.split('\n').map(s => s.trim()).filter(Boolean),
-    runCommand: isStatic ? null : ($.run.value.trim() || null),
-    staticDir: isStatic ? ($.static.value.trim() || null) : null,
+    runCommand: mode === 'command' ? ($.run.value.trim() || null) : null,
+    staticDir: mode === 'static' ? ($.static.value.trim() || null) : null,
+    scriptFile: mode === 'script' ? ($.script.value.trim() || null) : null,
     port: $.port.value ? +$.port.value : null,
     envVars: parseEnv($.env.value),
     autoStart: $.auto.checked,

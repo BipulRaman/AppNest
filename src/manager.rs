@@ -30,6 +30,8 @@ pub struct SavedApp {
     pub env_vars: HashMap<String, String>,
     #[serde(default)]
     pub auto_start: bool,
+    #[serde(default)]
+    pub script_file: Option<String>,
 }
 
 // ─── Runtime State ──────────────────────────────────────────────────
@@ -69,6 +71,7 @@ pub struct AppResponse {
     pub pid: Option<u32>,
     pub building: bool,
     pub auto_start: bool,
+    pub script_file: Option<String>,
 }
 
 // ─── App Manager ────────────────────────────────────────────────────
@@ -156,6 +159,7 @@ impl AppManager {
             pid: a.pid,
             building: a.status == "building",
             auto_start: a.entry.auto_start,
+            script_file: a.entry.script_file.clone(),
         }).collect()
     }
 
@@ -190,6 +194,7 @@ impl AppManager {
         app.entry.port = updates.port;
         app.entry.env_vars = updates.env_vars;
         app.entry.auto_start = updates.auto_start;
+        app.entry.script_file = updates.script_file;
         drop(state);
         self.save();
         Ok(())
@@ -357,8 +362,124 @@ impl AppManager {
             return Ok(());
         }
 
+        // Script mode
+        if let Some(ref script) = entry.script_file {
+            let abs_script = if Path::new(script).is_absolute() {
+                PathBuf::from(script)
+            } else {
+                Path::new(cwd).join(script)
+            };
+            if !abs_script.exists() {
+                let mut state = self.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&id) {
+                    app.status = "stopped".into();
+                }
+                return Err(format!("Script not found: {}", abs_script.display()));
+            }
+            let ext = abs_script.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let script_str = abs_script.to_string_lossy().to_string();
+            let env = build_env(entry);
+
+            let mut cmd = match ext.as_str() {
+                "ps1" => {
+                    let mut c = tokio::process::Command::new("powershell");
+                    c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_str]);
+                    c
+                }
+                "bat" | "cmd" => {
+                    let mut c = tokio::process::Command::new("cmd");
+                    c.args(["/c", &script_str]);
+                    c
+                }
+                "sh" | "bash" => {
+                    let mut c = tokio::process::Command::new("sh");
+                    c.args(["-c", &script_str]);
+                    c
+                }
+                _ => {
+                    // Default: run via OS shell
+                    if cfg!(windows) {
+                        let mut c = tokio::process::Command::new("cmd");
+                        c.args(["/c", &script_str]);
+                        c
+                    } else {
+                        let mut c = tokio::process::Command::new("sh");
+                        c.args(["-c", &script_str]);
+                        c
+                    }
+                }
+            };
+            cmd.current_dir(cwd);
+            cmd.envs(&env);
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            { cmd.creation_flags(0x08000200); } // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+
+            let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+            let pid = child.id().unwrap_or(0);
+
+            if let Some(stdout) = child.stdout.take() {
+                let l = logs.clone();
+                let mgr = Arc::clone(self);
+                tokio::spawn(async move {
+                    let mut reader = tokio::io::BufReader::new(stdout);
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        mgr.append_log(id, &line);
+                        let mut v = l.lock().unwrap();
+                        v.push_back(line.clone());
+                        if v.len() > LOG_CAP { v.pop_front(); }
+                        line.clear();
+                    }
+                });
+            }
+            if let Some(stderr) = child.stderr.take() {
+                let l = logs.clone();
+                let mgr = Arc::clone(self);
+                tokio::spawn(async move {
+                    let mut reader = tokio::io::BufReader::new(stderr);
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        mgr.append_log(id, &format!("[ERR] {}", &line));
+                        let mut v = l.lock().unwrap();
+                        v.push_back(line.clone());
+                        if v.len() > LOG_CAP { v.pop_front(); }
+                        line.clear();
+                    }
+                });
+            }
+
+            let mgr = Arc::clone(self);
+            let logs_exit = logs.clone();
+            let app_name = entry.name.clone();
+            tokio::spawn(async move {
+                let result = child.wait().await;
+                let msg = match result {
+                    Ok(s) => format!("\nScript exited with code {}\n", s),
+                    Err(e) => format!("\nScript error: {}\n", e),
+                };
+                mgr.append_log(id, &msg);
+                mgr.log_server(&format!("{} (id={}) script exited", app_name, id));
+                logs_exit.lock().unwrap().push_back(msg);
+                let mut state = mgr.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&id) {
+                    app.status = "stopped".into();
+                    app.pid = None;
+                }
+            });
+
+            let mut state = self.state.lock().unwrap();
+            if let Some(app) = state.apps.get_mut(&id) {
+                app.status = "running".into();
+                app.pid = Some(pid);
+            }
+            self.log_server(&format!("Started script: {} (id={}, pid={})", entry.name, id, pid));
+            return Ok(());
+        }
+
         // Command mode
-        let cmd_str = entry.run_command.as_deref().ok_or("No run command specified")?;
+        let cmd_str = entry.run_command.as_deref().ok_or("No run command or script specified")?;
         let env = build_env(entry);
 
         let mut cmd = if cfg!(windows) {

@@ -64,6 +64,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.BUILD_TAG }}
-          name: ${{ env.BUILD_LABEL }}
+          name: ${{ env.BUILD_TAG }}
           files: dist/myservers.exe
           generate_release_notes: true
