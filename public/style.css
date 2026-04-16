@@ -145,7 +145,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
   width:560px;max-width:94vw;max-height:88vh;overflow-y:auto;
   box-shadow:var(--shadow-lg);animation:slideUp .2s;
 }
-.dialog-lg{width:800px}
+.dialog-lg{width:800px;height:70vh;resize:both;overflow:hidden;min-width:400px;min-height:300px;display:flex;flex-direction:column}
+.dialog-lg .dialog-head{flex-shrink:0}
+.dialog-lg .dialog-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .dialog-head{
   display:flex;align-items:center;justify-content:space-between;
   padding:16px 24px;border-bottom:1px solid var(--border);
@@ -220,11 +222,37 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .tab.active{background:var(--accent);color:#fff}
 
 .terminal{
-  background:#1a1a2e;color:#e0e0e0;
+  background:#0c0c0c;color:#cccccc;
   border-radius:var(--radius);padding:16px;
-  font:12px/1.6 var(--mono);
-  max-height:55vh;overflow:auto;
+  font:13px/1.5 'Cascadia Mono','Consolas','Courier New',monospace;
+  flex:1;min-height:100px;overflow:auto;
   white-space:pre-wrap;word-break:break-all;
+}
+.terminal .log-err{
+  color:#f87171;
+}
+.terminal .log-warn{
+  color:#fbbf24;
+}
+.terminal .log-info{
+  color:#34d399;
+}
+.terminal .log-debug{
+  color:#6b7280;font-style:italic;
+}
+.terminal .log-url, .terminal .log-err .log-url, .terminal .log-warn .log-url, .terminal .log-debug .log-url{
+  color:#5eead4;text-decoration:underline;
+  cursor:pointer;
+}
+.terminal .log-url:hover{
+  color:#99f6e4;
+}
+.terminal .log-ts, .terminal .log-err .log-ts, .terminal .log-warn .log-ts, .terminal .log-debug .log-ts{
+  color:#6b7280;
+}
+
+.terminal.nowrap{
+  white-space:pre;word-break:normal;
 }
 
 /* ━━━ Toast ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */

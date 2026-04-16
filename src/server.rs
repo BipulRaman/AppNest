@@ -209,9 +209,10 @@ async fn get_app_logs(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>) -
 }
 
 async fn export_app_logs(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>) -> impl IntoResponse {
+    let app_name = mgr.list_apps().iter().find(|a| a.id == id).map(|a| a.name.replace(' ', "_")).unwrap_or_else(|| format!("app-{}", id));
     match mgr.get_app_log(id) {
         Ok(log) => {
-            let fname = format!("app-{}-logs.txt", id);
+            let fname = format!("{}-logs.log", app_name);
             (StatusCode::OK, [
                 (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
                 (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", fname)),

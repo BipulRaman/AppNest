@@ -251,7 +251,7 @@ impl AppManager {
         let build_logs = build_logs.ok_or("App not found")?;
 
         for step in &entry.build_steps {
-            build_logs.lock().unwrap().push_back(format!("\n▶ Running: {}\n", step));
+            build_logs.lock().unwrap().push_back(stamped(&format!("▶ Running: {}", step)));
             self.append_log(entry.id, &format!("[BUILD] {}", step));
 
             let mut cmd = if cfg!(windows) {
@@ -279,7 +279,7 @@ impl AppManager {
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         let mut v = bl.lock().unwrap();
-                        v.push_back(line.clone());
+                        v.push_back(stamped(&line));
                         if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
@@ -292,7 +292,7 @@ impl AppManager {
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         let mut v = bl.lock().unwrap();
-                        v.push_back(line.clone());
+                        v.push_back(stamped(&line));
                         if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
@@ -339,16 +339,16 @@ impl AppManager {
                     .fallback(ServeFile::new(index));
                 let app = axum::Router::new().fallback_service(serve);
 
-                logs_c.lock().unwrap().push_back(format!(
-                    "Static server at http://localhost:{}\nServing: {}\n", port, abs_str
-                ));
+                logs_c.lock().unwrap().push_back(stamped(&format!(
+                    "Static server at http://localhost:{}  Serving: {}", port, abs_str
+                )));
 
                 if let Ok(listener) = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
                     axum::serve(listener, app)
                         .with_graceful_shutdown(async { let _ = shutdown_rx.await; })
                         .await.ok();
                 } else {
-                    logs_c.lock().unwrap().push_back(format!("Failed to bind port {}\n", port));
+                    logs_c.lock().unwrap().push_back(stamped(&format!("Failed to bind port {}", port)));
                 }
             });
 
@@ -428,7 +428,7 @@ impl AppManager {
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         mgr.append_log(id, &line);
                         let mut v = l.lock().unwrap();
-                        v.push_back(line.clone());
+                        v.push_back(stamped(&line));
                         if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
@@ -443,7 +443,7 @@ impl AppManager {
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         mgr.append_log(id, &format!("[ERR] {}", &line));
                         let mut v = l.lock().unwrap();
-                        v.push_back(line.clone());
+                        v.push_back(stamped(&line));
                         if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
@@ -456,12 +456,12 @@ impl AppManager {
             tokio::spawn(async move {
                 let result = child.wait().await;
                 let msg = match result {
-                    Ok(s) => format!("\nScript exited with code {}\n", s),
-                    Err(e) => format!("\nScript error: {}\n", e),
+                    Ok(s) => format!("Script exited with code {}", s),
+                    Err(e) => format!("Script error: {}", e),
                 };
                 mgr.append_log(id, &msg);
                 mgr.log_server(&format!("{} (id={}) script exited", app_name, id));
-                logs_exit.lock().unwrap().push_back(msg);
+                logs_exit.lock().unwrap().push_back(stamped(&msg));
                 let mut state = mgr.state.lock().unwrap();
                 if let Some(app) = state.apps.get_mut(&id) {
                     app.status = "stopped".into();
@@ -510,7 +510,7 @@ impl AppManager {
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &line);
                     let mut v = l.lock().unwrap();
-                    v.push_back(line.clone());
+                    v.push_back(stamped(&line));
                     if v.len() > LOG_CAP { v.pop_front(); }
                     line.clear();
                 }
@@ -526,7 +526,7 @@ impl AppManager {
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &format!("[ERR] {}", &line));
                     let mut v = l.lock().unwrap();
-                    v.push_back(line.clone());
+                    v.push_back(stamped(&line));
                     if v.len() > LOG_CAP { v.pop_front(); }
                     line.clear();
                 }
@@ -539,12 +539,12 @@ impl AppManager {
         tokio::spawn(async move {
             let result = child.wait().await;
             let msg = match result {
-                Ok(s) => format!("\nProcess exited with code {}\n", s),
-                Err(e) => format!("\nProcess error: {}\n", e),
+                Ok(s) => format!("Process exited with code {}", s),
+                Err(e) => format!("Process error: {}", e),
             };
             mgr.append_log(id, &msg);
             mgr.log_server(&format!("{} (id={}) exited", app_name, id));
-            logs_exit.lock().unwrap().push_back(msg);
+            logs_exit.lock().unwrap().push_back(stamped(&msg));
             let mut state = mgr.state.lock().unwrap();
             if let Some(app) = state.apps.get_mut(&id) {
                 app.status = "stopped".into();
@@ -586,16 +586,14 @@ impl AppManager {
         let app = state.apps.get(&id).ok_or("App not found")?;
         let logs = {
             let v = app.logs.lock().unwrap();
-            let cap: usize = v.iter().map(|s| s.len()).sum();
-            let mut out = String::with_capacity(cap);
-            for s in v.iter() { out.push_str(s); }
+            let mut out = String::new();
+            for s in v.iter() { out.push_str(s); out.push('\n'); }
             out
         };
         let build_logs = {
             let v = app.build_logs.lock().unwrap();
-            let cap: usize = v.iter().map(|s| s.len()).sum();
-            let mut out = String::with_capacity(cap);
-            for s in v.iter() { out.push_str(s); }
+            let mut out = String::new();
+            for s in v.iter() { out.push_str(s); out.push('\n'); }
             out
         };
         Ok((logs, build_logs))
@@ -626,21 +624,32 @@ impl AppManager {
 
     // ── File-based Logs ─────────────────────────────────────────
 
-    fn log_file_path(&self, id: u32) -> PathBuf {
-        self.logs_dir.join(format!("app-{}.log", id))
+    fn app_log_name(&self, id: u32) -> String {
+        let state = self.state.lock().unwrap();
+        state.apps.get(&id)
+            .map(|a| a.entry.name.replace(' ', "_"))
+            .unwrap_or_else(|| format!("app-{}", id))
+    }
+
+    fn log_file_path_for(&self, name: &str) -> PathBuf {
+        self.logs_dir.join(format!("{}.log", name))
     }
 
     pub fn append_log(&self, id: u32, line: &str) {
         use std::io::Write;
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(self.log_file_path(id)) {
+        let name = self.app_log_name(id);
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(self.log_file_path_for(&name)) {
             let _ = writeln!(f, "[{}] {}", local_timestamp(), line.trim_end());
         }
     }
 
     pub fn get_app_log(&self, id: u32) -> Result<String, String> {
         let state = self.state.lock().unwrap();
-        if !state.apps.contains_key(&id) { return Err("App not found".into()); }
-        let path = self.log_file_path(id);
+        let name = state.apps.get(&id)
+            .map(|a| a.entry.name.replace(' ', "_"))
+            .ok_or("App not found")?;
+        drop(state);
+        let path = self.log_file_path_for(&name);
         Ok(if path.exists() { tail_file(&path, 512 * 1024) } else { String::new() })
     }
 
@@ -699,6 +708,10 @@ fn local_timestamp() -> String {
         let s = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
         format!("{}", s)
     }
+}
+
+fn stamped(line: &str) -> String {
+    format!("[{}] {}", local_timestamp(), line.trim_end())
 }
 
 fn npm_global_prefix() -> &'static str {

@@ -114,22 +114,35 @@ fn main() {
 }
 
 fn create_tray_icon() -> tray_icon::Icon {
-    let size = 32u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let cx = x as f32 - 15.5;
-            let cy = y as f32 - 15.5;
-            let dist = (cx * cx + cy * cy).sqrt();
-            if dist <= 13.0 {
-                rgba.extend_from_slice(&[80, 70, 229, 255]);
-            } else if dist <= 15.0 {
-                let alpha = ((15.0 - dist) / 2.0 * 255.0).clamp(0.0, 255.0) as u8;
-                rgba.extend_from_slice(&[80, 70, 229, alpha]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
+    let s = 32u32;
+    let mut rgba = vec![0u8; (s * s * 4) as usize];
+    let c = 15.5f32;
+
+    for y in 0..s {
+        for x in 0..s {
+            let i = ((y * s + x) * 4) as usize;
+            let dx = x as f32 - c;
+            let dy = y as f32 - c;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let angle = dy.atan2(dx);
+
+            // Gear: ring with 8 teeth + center hub
+            let tooth = (angle * 4.0).cos(); // 8 teeth
+            let outer = 13.0 + tooth.max(0.0) * 2.5;
+            let inner = 8.0;
+            let hub = 4.0;
+
+            let in_shape = (dist <= outer && dist >= inner) || dist <= hub;
+            if in_shape {
+                let edge = if dist >= inner {
+                    (outer - dist).min(dist - inner)
+                } else {
+                    hub - dist
+                };
+                let a = (edge.clamp(0.0, 1.5) / 1.5 * 255.0) as u8;
+                rgba[i..i + 4].copy_from_slice(&[99, 102, 241, a]);
             }
         }
     }
-    tray_icon::Icon::from_rgba(rgba, size, size).expect("Failed to create icon")
+    tray_icon::Icon::from_rgba(rgba, s, s).expect("Failed to create icon")
 }

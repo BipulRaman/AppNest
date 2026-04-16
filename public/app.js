@@ -275,19 +275,43 @@ async function showLogs(id, name) {
 function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 2000); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
+function classifyLine(raw) {
+  if (/\b(?:error|fail|fatal|exception|unhandled|panic)\b/i.test(raw)) return 'log-err';
+  if (/\b(?:warn|warning)\b/i.test(raw)) return 'log-warn';
+  if (/\b(?:debug|trace)\b/i.test(raw)) return 'log-debug';
+  return '';
+}
+
+function linkifyUrls(text) {
+  const urlRe = /(https?:\/\/[^\s]+)/;
+  return text.split('\n').map(raw => {
+    const cls = classifyLine(raw);
+    const parts = raw.split(/(https?:\/\/[^\s]+)/g);
+    let h = parts.map(p => urlRe.test(p)
+      ? `<a class="log-url" href="${p.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" target="_blank" rel="noopener">${esc(p)}</a>`
+      : esc(p)
+    ).join('');
+    h = h.replace(/(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/g, '<span class="log-ts">$1</span>');
+    return cls ? `<span class="${cls}">${h}</span>` : h;
+  }).join('\n');
+}
+
 async function refreshLogs() {
   if (!currentLogId) return;
   const $el = document.getElementById('logContent');
+  const wasAtBottom = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 30;
+  let raw;
   if (currentLogTab === 'applog') {
     const d = await api(`${API}/${currentLogId}/applogs`);
-    $el.textContent = d.log || '(empty)';
+    raw = d.log || '(empty)';
   } else {
     const d = await api(`${API}/${currentLogId}/logs`);
-    $el.textContent = currentLogTab === 'run'
+    raw = currentLogTab === 'run'
       ? (d.logs || '(waiting for output…)')
       : (d.buildLogs || '(no build output)');
   }
-  $el.scrollTop = $el.scrollHeight;
+  $el.innerHTML = linkifyUrls(raw);
+  if (wasAtBottom) $el.scrollTop = $el.scrollHeight;
 }
 
 document.querySelectorAll('.tab-bar .tab').forEach(b => {
@@ -304,6 +328,19 @@ document.getElementById('btnCloseLogs').onclick = () => {
   closeModal('logModal');
   currentLogId = null;
   stopPoll();
+};
+
+const wrapIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="13 16 11 18 13 20"/><path d="M3 18h4"/></svg>';
+document.getElementById('btnWrapLog').onclick = () => {
+  const $el = document.getElementById('logContent');
+  const btn = document.getElementById('btnWrapLog');
+  $el.classList.toggle('nowrap');
+  btn.innerHTML = wrapIcon + ($el.classList.contains('nowrap') ? ' Text Wrap' : ' Text Unwrap');
+};
+
+document.getElementById('btnCopyLog').onclick = () => {
+  const text = document.getElementById('logContent').textContent;
+  navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard', 'success')).catch(() => toast('Copy failed', 'error'));
 };
 
 document.getElementById('btnExportLog').onclick = () => {
