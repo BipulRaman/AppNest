@@ -46,15 +46,21 @@ const IC = {
 };
 
 // ─── Presets ────────────────────────────────────────
-const presets = {
-  dotnet:  { build: 'dotnet restore\ndotnet build -c Release\ndotnet publish -c Release -o ./publish\ndotnet ./publish/MyApp.dll', port: 5000, env: 'ASPNETCORE_ENVIRONMENT=Production', serve: 'command', static: '' },
-  node:    { build: 'npm install\nnpm run build\nnode dist/index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
-  react:   { build: 'npm install\nnpm run build', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './build' },
-  nextjs:  { build: 'npm install\nnpm run build\nnpm start', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
-  angular: { build: 'npm install\nnpm run build -- --configuration production', port: 4200, env: 'NODE_ENV=production', serve: 'static', static: './dist/my-app' },
-  vue:     { build: 'npm install\nnpm run build', port: 3000, env: 'NODE_ENV=production', serve: 'static', static: './dist' },
-  express: { build: 'npm install\nnode index.js', port: 3000, env: 'NODE_ENV=production', serve: 'command', static: '' },
-};
+let presets = {};
+
+async function loadPresets() {
+  const list = await (await fetch('/presets.json')).json();
+  const $type = document.getElementById('fType');
+  $type.innerHTML = '';
+  presets = {};
+  for (const p of list) {
+    presets[p.value] = { build: p.build, port: p.port, env: p.env, serve: p.serve, static: p.static };
+    const opt = document.createElement('option');
+    opt.value = p.value;
+    opt.textContent = p.label;
+    $type.appendChild(opt);
+  }
+}
 
 // ─── Render App List ────────────────────────────────
 const $list = document.getElementById('appList');
@@ -323,5 +329,7 @@ document.addEventListener('keydown', e => {
 });
 
 // ─── Auto-refresh ───────────────────────────────────
-setInterval(loadApps, 3000);
-loadApps();
+loadPresets().then(() => {
+  setInterval(loadApps, 3000);
+  loadApps();
+});

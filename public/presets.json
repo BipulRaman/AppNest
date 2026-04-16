@@ -1,0 +1,65 @@
+[
+  {
+    "value": "dotnet",
+    "label": ".NET",
+    "serve": "command",
+    "port": 5000,
+    "build": "dotnet restore\ndotnet build -c Release\ndotnet publish -c Release -o ./publish\ndotnet ./publish/MyApp.dll",
+    "env": "ASPNETCORE_ENVIRONMENT=Production",
+    "static": ""
+  },
+  {
+    "value": "node",
+    "label": "Node.js",
+    "serve": "command",
+    "port": 3000,
+    "build": "npm install\nnpm run build\nnode dist/index.js",
+    "env": "NODE_ENV=production",
+    "static": ""
+  },
+  {
+    "value": "react",
+    "label": "React",
+    "serve": "static",
+    "port": 3000,
+    "build": "npm install\nnpm run build",
+    "env": "NODE_ENV=production",
+    "static": "./dist"
+  },
+  {
+    "value": "nextjs",
+    "label": "Next.js",
+    "serve": "command",
+    "port": 3000,
+    "build": "npm install\nnpm run build\nnpm start",
+    "env": "NODE_ENV=production",
+    "static": ""
+  },
+  {
+    "value": "angular",
+    "label": "Angular",
+    "serve": "static",
+    "port": 4200,
+    "build": "npm install\nnpm run build -- --configuration production",
+    "env": "NODE_ENV=production",
+    "static": "./dist/my-app"
+  },
+  {
+    "value": "vue",
+    "label": "Vue",
+    "serve": "static",
+    "port": 3000,
+    "build": "npm install\nnpm run build",
+    "env": "NODE_ENV=production",
+    "static": "./dist"
+  },
+  {
+    "value": "express",
+    "label": "Express",
+    "serve": "command",
+    "port": 3000,
+    "build": "npm install\nnode index.js",
+    "env": "NODE_ENV=production",
+    "static": ""
+  }
+]
