@@ -4,6 +4,7 @@ use axum::http::{header, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
+use axum::body::Body;
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -46,10 +47,20 @@ async fn static_handler(uri: Uri) -> Response {
     match Assets::get(path) {
         Some(c) => {
             let mime = from_path(path).first_or_octet_stream();
-            (StatusCode::OK, [(header::CONTENT_TYPE, mime.as_ref())], c.data.to_vec()).into_response()
+            let body = match c.data {
+                std::borrow::Cow::Borrowed(b) => Body::from(b),
+                std::borrow::Cow::Owned(v) => Body::from(v),
+            };
+            (StatusCode::OK, [(header::CONTENT_TYPE, mime.as_ref().to_owned())], body).into_response()
         }
         None => match Assets::get("index.html") {
-            Some(c) => (StatusCode::OK, [(header::CONTENT_TYPE, "text/html")], c.data.to_vec()).into_response(),
+            Some(c) => {
+                let body = match c.data {
+                    std::borrow::Cow::Borrowed(b) => Body::from(b),
+                    std::borrow::Cow::Owned(v) => Body::from(v),
+                };
+                (StatusCode::OK, [(header::CONTENT_TYPE, "text/html".to_owned())], body).into_response()
+            }
             None => StatusCode::NOT_FOUND.into_response(),
         },
     }

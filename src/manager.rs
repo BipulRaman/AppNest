@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -34,13 +34,15 @@ pub struct SavedApp {
 
 // ─── Runtime State ──────────────────────────────────────────────────
 
+const LOG_CAP: usize = 2000;
+
 struct AppRuntime {
     entry: SavedApp,
     status: String,
     pid: Option<u32>,
     static_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
-    logs: Arc<Mutex<Vec<String>>>,
-    build_logs: Arc<Mutex<Vec<String>>>,
+    logs: Arc<Mutex<VecDeque<String>>>,
+    build_logs: Arc<Mutex<VecDeque<String>>>,
 }
 
 struct ManagerState {
@@ -123,8 +125,8 @@ impl AppManager {
                         status: "stopped".into(),
                         pid: None,
                         static_shutdown: None,
-                        logs: Arc::new(Mutex::new(Vec::new())),
-                        build_logs: Arc::new(Mutex::new(Vec::new())),
+                        logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
+                        build_logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
                     });
                 }
             }
@@ -168,8 +170,8 @@ impl AppManager {
             status: "stopped".into(),
             pid: None,
             static_shutdown: None,
-            logs: Arc::new(Mutex::new(Vec::new())),
-            build_logs: Arc::new(Mutex::new(Vec::new())),
+            logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
+            build_logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
         });
         drop(state);
         self.save();
@@ -244,7 +246,7 @@ impl AppManager {
         let build_logs = build_logs.ok_or("App not found")?;
 
         for step in &entry.build_steps {
-            build_logs.lock().unwrap().push(format!("\n▶ Running: {}\n", step));
+            build_logs.lock().unwrap().push_back(format!("\n▶ Running: {}\n", step));
             self.append_log(entry.id, &format!("[BUILD] {}", step));
 
             let mut cmd = if cfg!(windows) {
@@ -269,7 +271,9 @@ impl AppManager {
                     let mut reader = tokio::io::BufReader::new(stdout);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                        bl.lock().unwrap().push(line.clone());
+                        let mut v = bl.lock().unwrap();
+                        v.push_back(line.clone());
+                        if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
                 });
@@ -280,7 +284,9 @@ impl AppManager {
                     let mut reader = tokio::io::BufReader::new(stderr);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                        bl.lock().unwrap().push(line.clone());
+                        let mut v = bl.lock().unwrap();
+                        v.push_back(line.clone());
+                        if v.len() > LOG_CAP { v.pop_front(); }
                         line.clear();
                     }
                 });
@@ -326,7 +332,7 @@ impl AppManager {
                     .fallback(ServeFile::new(index));
                 let app = axum::Router::new().fallback_service(serve);
 
-                logs_c.lock().unwrap().push(format!(
+                logs_c.lock().unwrap().push_back(format!(
                     "Static server at http://localhost:{}\nServing: {}\n", port, abs_str
                 ));
 
@@ -335,7 +341,7 @@ impl AppManager {
                         .with_graceful_shutdown(async { let _ = shutdown_rx.await; })
                         .await.ok();
                 } else {
-                    logs_c.lock().unwrap().push(format!("Failed to bind port {}\n", port));
+                    logs_c.lock().unwrap().push_back(format!("Failed to bind port {}\n", port));
                 }
             });
 
@@ -381,8 +387,8 @@ impl AppManager {
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &line);
                     let mut v = l.lock().unwrap();
-                    v.push(line.clone());
-                    if v.len() > 2000 { v.remove(0); }
+                    v.push_back(line.clone());
+                    if v.len() > LOG_CAP { v.pop_front(); }
                     line.clear();
                 }
             });
@@ -397,8 +403,8 @@ impl AppManager {
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &format!("[ERR] {}", &line));
                     let mut v = l.lock().unwrap();
-                    v.push(line.clone());
-                    if v.len() > 2000 { v.remove(0); }
+                    v.push_back(line.clone());
+                    if v.len() > LOG_CAP { v.pop_front(); }
                     line.clear();
                 }
             });
@@ -415,7 +421,7 @@ impl AppManager {
             };
             mgr.append_log(id, &msg);
             mgr.log_server(&format!("{} (id={}) exited", app_name, id));
-            logs_exit.lock().unwrap().push(msg);
+            logs_exit.lock().unwrap().push_back(msg);
             let mut state = mgr.state.lock().unwrap();
             if let Some(app) = state.apps.get_mut(&id) {
                 app.status = "stopped".into();
@@ -455,8 +461,20 @@ impl AppManager {
     pub fn get_logs(&self, id: u32) -> Result<(String, String), String> {
         let state = self.state.lock().unwrap();
         let app = state.apps.get(&id).ok_or("App not found")?;
-        let logs = app.logs.lock().unwrap().join("");
-        let build_logs = app.build_logs.lock().unwrap().join("");
+        let logs = {
+            let v = app.logs.lock().unwrap();
+            let cap: usize = v.iter().map(|s| s.len()).sum();
+            let mut out = String::with_capacity(cap);
+            for s in v.iter() { out.push_str(s); }
+            out
+        };
+        let build_logs = {
+            let v = app.build_logs.lock().unwrap();
+            let cap: usize = v.iter().map(|s| s.len()).sum();
+            let mut out = String::with_capacity(cap);
+            for s in v.iter() { out.push_str(s); }
+            out
+        };
         Ok((logs, build_logs))
     }
 
@@ -500,11 +518,12 @@ impl AppManager {
         let state = self.state.lock().unwrap();
         if !state.apps.contains_key(&id) { return Err("App not found".into()); }
         let path = self.log_file_path(id);
-        Ok(if path.exists() { fs::read_to_string(&path).unwrap_or_default() } else { String::new() })
+        Ok(if path.exists() { tail_file(&path, 512 * 1024) } else { String::new() })
     }
 
     pub fn get_server_log(&self) -> String {
-        fs::read_to_string(self.logs_dir.join("server.log")).unwrap_or_default()
+        let path = self.logs_dir.join("server.log");
+        if path.exists() { tail_file(&path, 256 * 1024) } else { String::new() }
     }
 
     pub fn log_server(&self, line: &str) {
@@ -516,6 +535,27 @@ impl AppManager {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+/// Read at most the last `max_bytes` of a file, aligned to a line boundary.
+fn tail_file(path: &Path, max_bytes: u64) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = fs::File::open(path) else { return String::new() };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if len > max_bytes {
+        let _ = f.seek(SeekFrom::Start(len - max_bytes));
+        let mut buf = String::with_capacity(max_bytes as usize);
+        let _ = f.read_to_string(&mut buf);
+        // Skip partial first line
+        if let Some(pos) = buf.find('\n') {
+            buf.drain(..=pos);
+        }
+        buf
+    } else {
+        let mut buf = String::with_capacity(len as usize);
+        let _ = f.read_to_string(&mut buf);
+        buf
+    }
+}
 
 fn local_timestamp() -> String {
     #[cfg(windows)]
@@ -538,6 +578,32 @@ fn local_timestamp() -> String {
     }
 }
 
+fn npm_global_prefix() -> &'static str {
+    use std::sync::OnceLock;
+    static PREFIX: OnceLock<String> = OnceLock::new();
+    PREFIX.get_or_init(|| {
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/c", "npm prefix -g"])
+                .creation_flags(0x08000000)
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        }
+        #[cfg(not(windows))]
+        {
+            std::process::Command::new("sh")
+                .args(["-c", "npm prefix -g"])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        }
+    })
+}
+
 fn build_env(entry: &SavedApp) -> HashMap<String, String> {
     let mut env: HashMap<String, String> = std::env::vars().collect();
     env.extend(entry.env_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -548,16 +614,10 @@ fn build_env(entry: &SavedApp) -> HashMap<String, String> {
     let mut extra_paths = vec![nm_bin.to_string_lossy().to_string()];
 
     // Add npm global bin (where global packages like tsc might be)
-    if let Ok(output) = std::process::Command::new("cmd")
-        .args(["/c", "npm prefix -g"])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-    {
-        let global_prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !global_prefix.is_empty() {
-            extra_paths.push(global_prefix.clone());
-            extra_paths.push(format!("{}\\node_modules\\.bin", global_prefix));
-        }
+    let global_prefix = npm_global_prefix();
+    if !global_prefix.is_empty() {
+        extra_paths.push(global_prefix.to_string());
+        extra_paths.push(format!("{}\\node_modules\\.bin", global_prefix));
     }
 
     // Find all PATH-like keys (Windows is case-insensitive but HashMap isn't)
