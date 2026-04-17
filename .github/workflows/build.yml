@@ -37,6 +37,17 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
+      - name: Stamp Cargo.toml version
+        shell: pwsh
+        run: |
+          $ver = "${{ env.BUILD_TAG }}".TrimStart('v')
+          $path = "app/Cargo.toml"
+          $content = Get-Content $path -Raw
+          $updated = [regex]::Replace($content, '(?m)^version\s*=\s*"[^"]+"', "version = `"$ver`"", 1)
+          Set-Content -Path $path -Value $updated -NoNewline
+          Write-Host "Stamped version: $ver"
+          Select-String -Path $path -Pattern '^version' | Select-Object -First 1
+
       - name: Install MinGW
         run: choco install mingw -y
 
