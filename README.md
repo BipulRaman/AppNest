@@ -6,6 +6,10 @@ Stop juggling terminals. One app to build, host, and watch them all.
 
 **Single small native executable. No runtime dependencies. System tray on Windows. Built with Rust — runs on Windows, macOS, and Linux.**
 
+> ⚠️ **Platform status**
+> - **Windows** — stable, fully tested, daily-driven.
+> - **macOS & Linux** — **experimental / under active development.** Builds are produced on every release, but they have not been through the same real-world testing as the Windows build. Expect rough edges: no system-tray integration yet (the app runs in the foreground — `Ctrl+C` to quit), native file-dialog behavior may vary between desktop environments, and some paths/permissions corner cases are still being worked out. Please try it, and [file an issue](../../issues) for anything that breaks.
+
 ---
 
 ## Screenshot
@@ -37,7 +41,11 @@ Stop juggling terminals. One app to build, host, and watch them all.
 
 ## Quick Start
 
-1. Download `AppNest.exe` from [Releases](../../releases).
+1. Download the appropriate archive for your OS from [Releases](../../releases):
+   - Windows: `appnest-windows-x86_64.exe`
+   - macOS (Apple Silicon): `appnest-macos-arm64.tar.gz`
+   - macOS (Intel): `appnest-macos-x86_64.tar.gz`
+   - Linux (x86_64): `appnest-linux-x86_64.tar.gz`
 2. Run it. The dashboard opens at `http://localhost:1234`.
 3. Click **New Application**, select your project type, browse to your project folder.
 4. Hit **Save**, then **Start**.
