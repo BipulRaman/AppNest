@@ -1,14 +1,17 @@
 use crate::manager::{AppManager, SavedApp};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode, Uri};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use axum::body::Body;
+use futures_util::stream::Stream;
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::Arc;
 
 #[derive(RustEmbed)]
@@ -24,6 +27,7 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/apps/:id/restart", post(restart_app))
         .route("/api/apps/reorder", post(reorder_apps))
         .route("/api/apps/:id/logs", get(get_logs))
+        .route("/api/apps/:id/logs/stream", get(stream_logs))
         .route("/api/apps/:id/applogs", get(get_app_logs))
         .route("/api/apps/:id/applogs/export", get(export_app_logs))
         .route("/api/pick-folder", get(pick_folder))
@@ -211,6 +215,49 @@ async fn get_logs(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>) -> im
         Ok((logs, build_logs)) => (StatusCode::OK, Json(LogsResp { logs, build_logs })).into_response(),
         Err(e) => err(&e).into_response(),
     }
+}
+
+async fn stream_logs(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<u32>,
+) -> Response {
+    let (logs_snap, build_snap, mut rx) = match mgr.subscribe_logs(id) {
+        Ok(v) => v,
+        Err(e) => return err(&e).into_response(),
+    };
+
+    // Emit a one-time "snapshot" event, then stream live lines.
+    let stream = async_stream::stream! {
+        let payload = serde_json::json!({
+            "logs": logs_snap,
+            "buildLogs": build_snap,
+        });
+        yield Ok::<_, Infallible>(Event::default().event("snapshot").data(payload.to_string()));
+
+        loop {
+            match rx.recv().await {
+                Ok(line) => {
+                    let payload = serde_json::json!({
+                        "kind": line.kind,
+                        "text": line.text,
+                    });
+                    yield Ok(Event::default().event("line").data(payload.to_string()));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    yield Ok(Event::default().event("lag").data(n.to_string()));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
+    // Annotate stream type so Sse<S> is well-typed
+    let stream: std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
+        Box::pin(stream);
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 #[derive(Serialize)]

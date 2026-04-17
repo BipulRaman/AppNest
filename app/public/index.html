@@ -63,6 +63,37 @@
 
   <div id="toastBox" class="toast-wrap"></div>
 
+  <!-- ═══ Confirm Dialog ═══ -->
+  <div id="confirmModal" class="overlay hidden"><div class="overlay-bg"></div>
+    <div class="dialog dialog-sm">
+      <div class="dialog-body">
+        <h3 id="confirmTitle" class="confirm-title">Are you sure?</h3>
+        <p id="confirmMessage" class="confirm-message"></p>
+        <div class="dialog-foot confirm-foot">
+          <button type="button" class="btn btn-flat" id="confirmCancel">Cancel</button>
+          <button type="button" class="btn btn-danger" id="confirmOk">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Command Palette ═══ -->
+  <div id="paletteModal" class="overlay hidden"><div class="overlay-bg"></div>
+    <div class="palette">
+      <div class="palette-input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="paletteInput" placeholder="Type to search apps or actions…" autocomplete="off"/>
+        <kbd>Esc</kbd>
+      </div>
+      <div id="paletteResults" class="palette-results"></div>
+      <div class="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+        <span><kbd>Enter</kbd> run</span>
+        <span><kbd>Esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ Add/Edit Modal ═══ -->
   <div id="modal" class="overlay hidden"><div class="overlay-bg"></div>
     <div class="dialog">

@@ -5,6 +5,26 @@ let statusFilter = 'all'; // 'all' | 'running' | 'stopped'
 const expandedPreviews = new Set(); // ids whose inline preview is open
 let previewTimer = null;
 
+// ─── Persisted UI state ───────────────────
+const LS_KEY = 'appnest.ui';
+function saveUiState() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      search: searchQuery,
+      filter: statusFilter,
+    }));
+  } catch (e) {}
+}
+function loadUiState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (typeof s.search === 'string') searchQuery = s.search;
+    if (typeof s.filter === 'string') statusFilter = s.filter;
+  } catch (e) {}
+}
+
 // ─── Utilities ──────────────────────────────────────
 async function api(url, method = 'GET', body) {
   const o = { method, headers: { 'Content-Type': 'application/json' } };
@@ -259,7 +279,13 @@ async function restartApp(id) {
 }
 
 async function deleteApp(id) {
-  if (!confirm('Remove this application?')) return;
+  const ok = await confirmDialog({
+    title: 'Remove application?',
+    message: 'This cannot be undone. The app configuration will be deleted.',
+    confirmLabel: 'Remove',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     const r = await fetch(`${API}/${id}`, { method: 'DELETE' });
     const d = await r.json();
@@ -379,16 +405,59 @@ $form.onsubmit = async (e) => {
 };
 
 // ─── Logs ───────────────────────────────────────────
+let logStream = null;
+let runBuf = '', buildBuf = '';
+
 async function showLogs(id, name) {
   currentLogId = id;
   currentLogTab = 'run';
+  runBuf = '';
+  buildBuf = '';
   document.getElementById('logTitle').textContent = name;
   document.getElementById('logModal').classList.remove('hidden');
   updateTabs();
-  await refreshLogs();
-  startPoll();
+  document.getElementById('logContent').innerHTML = '<span class="log-debug">(connecting…)</span>';
+  openLogStream(id);
 }
 
+function openLogStream(id) {
+  closeLogStream();
+  try {
+    const es = new EventSource(`${API}/${id}/logs/stream`);
+    logStream = es;
+    es.addEventListener('snapshot', (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        runBuf = d.logs || '';
+        buildBuf = d.buildLogs || '';
+        renderStreamedLogs();
+      } catch (e) {}
+    });
+    es.addEventListener('line', (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.kind === 'build') buildBuf += d.text + (d.text.endsWith('\n') ? '' : '\n');
+        else runBuf += d.text + (d.text.endsWith('\n') ? '' : '\n');
+        // Cap buffer size in browser too
+        if (runBuf.length > 500_000) runBuf = runBuf.slice(-400_000);
+        if (buildBuf.length > 500_000) buildBuf = buildBuf.slice(-400_000);
+        if (currentLogTab === 'run' || currentLogTab === 'build') renderStreamedLogs();
+      } catch (e) {}
+    });
+    es.onerror = () => {
+      // Browser auto-reconnects; if the server has closed, just leave the stream.
+    };
+  } catch (e) {
+    // Fallback to polling if EventSource fails
+    startPoll();
+  }
+}
+
+function closeLogStream() {
+  if (logStream) { logStream.close(); logStream = null; }
+}
+
+// Legacy polling kept for applog tab + fallback
 function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 2000); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
@@ -399,9 +468,20 @@ function classifyLine(raw) {
   return '';
 }
 
+function stripAnsi(s) {
+  // Remove CSI sequences (colors, cursor moves, etc.) and other escape codes
+  return String(s)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+    .replace(/\x1b[=>]/g, '')
+    // Common orphan bytes we often see boxed in the browser
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
 function linkifyUrls(text) {
   const urlRe = /(https?:\/\/[^\s]+)/;
-  return text.split('\n').map(raw => {
+  return stripAnsi(text).split('\n').map(raw => {
     const cls = classifyLine(raw);
     const parts = raw.split(/(https?:\/\/[^\s]+)/g);
     let h = parts.map(p => urlRe.test(p)
@@ -411,6 +491,17 @@ function linkifyUrls(text) {
     h = h.replace(/(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/g, '<span class="log-ts">$1</span>');
     return cls ? `<span class="${cls}">${h}</span>` : h;
   }).join('\n');
+}
+
+function renderStreamedLogs() {
+  const $el = document.getElementById('logContent');
+  if (!$el) return;
+  const wasAtBottom = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 30;
+  const raw = currentLogTab === 'run'
+    ? (runBuf || '(waiting for output…)')
+    : (buildBuf || '(no build output)');
+  $el.innerHTML = linkifyUrls(raw);
+  if (wasAtBottom) $el.scrollTop = $el.scrollHeight;
 }
 
 async function refreshLogs() {
@@ -432,7 +523,19 @@ async function refreshLogs() {
 }
 
 document.querySelectorAll('.tab-bar .tab').forEach(b => {
-  b.onclick = () => { currentLogTab = b.dataset.tab; updateTabs(); refreshLogs(); };
+  b.onclick = () => {
+    currentLogTab = b.dataset.tab;
+    updateTabs();
+    if (currentLogTab === 'applog') {
+      // Applog is file-backed; poll
+      stopPoll();
+      refreshLogs();
+      startPoll();
+    } else {
+      stopPoll();
+      renderStreamedLogs();
+    }
+  };
 });
 
 function updateTabs() {
@@ -445,6 +548,7 @@ document.getElementById('btnCloseLogs').onclick = () => {
   closeModal('logModal');
   currentLogId = null;
   stopPoll();
+  closeLogStream();
 };
 
 const wrapIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="13 16 11 18 13 20"/><path d="M3 18h4"/></svg>';
@@ -469,7 +573,7 @@ document.querySelectorAll('.overlay-bg').forEach(bg => {
   bg.onclick = () => {
     const m = bg.parentElement;
     m.classList.add('hidden');
-    if (m.id === 'logModal') { currentLogId = null; stopPoll(); }
+    if (m.id === 'logModal') { currentLogId = null; stopPoll(); closeLogStream(); }
   };
 });
 
@@ -477,12 +581,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.overlay:not(.hidden)').forEach(m => {
       m.classList.add('hidden');
-      if (m.id === 'logModal') { currentLogId = null; stopPoll(); }
+      if (m.id === 'logModal') { currentLogId = null; stopPoll(); closeLogStream(); }
     });
   }
 });
 
 // ─── Auto-refresh ───────────────────────────────────
+loadUiState();
 loadPresets().then(() => {
   setInterval(loadApps, 3000);
   loadApps();
@@ -501,20 +606,25 @@ if ($btnTheme) {
 // ─── Search ──────────────────────────────
 const $search = document.getElementById('searchInput');
 if ($search) {
+  $search.value = searchQuery;
   $search.addEventListener('input', e => {
     searchQuery = e.target.value;
     applySearchFilter();
+    saveUiState();
   });
 }
 
 // ─── Status filter chips ──────────────────
 document.querySelectorAll('.filter-chips .chip').forEach(c => {
+  // Initial active sync
+  c.classList.toggle('active', (c.dataset.filter || 'all') === statusFilter);
   c.addEventListener('click', () => {
     statusFilter = c.dataset.filter || 'all';
     document.querySelectorAll('.filter-chips .chip').forEach(b =>
       b.classList.toggle('active', b === c)
     );
     applySearchFilter();
+    saveUiState();
   });
 });
 
@@ -532,6 +642,9 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       document.getElementById('btnAdd').click();
     }
+  } else if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    openPalette();
   }
 });
 
@@ -541,7 +654,7 @@ async function refreshPreview(id) {
   if (!el) return;
   try {
     const d = await api(`${API}/${id}/logs`);
-    const raw = (d.logs || '').trim();
+    const raw = stripAnsi(d.logs || '').trim();
     if (!raw) { el.innerHTML = '<span class="empty">(waiting for output…)</span>'; return; }
     const lines = raw.split('\n');
     const tail = lines.slice(-6).join('\n');
@@ -575,46 +688,191 @@ function updatePreviewPolling() {
   }
 }
 
-// ─── Inline log tail ───────────────────────
-async function refreshPreview(id) {
-  const el = document.getElementById(`preview-${id}`);
-  if (!el) return;
-  try {
-    const d = await api(`${API}/${id}/logs`);
-    const raw = (d.logs || '').trim();
-    if (!raw) { el.innerHTML = '<span class="empty">(waiting for output…)</span>'; return; }
-    const lines = raw.split('\n');
-    const tail = lines.slice(-6).join('\n');
-    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
-    el.textContent = tail;
-    if (wasAtBottom) el.scrollTop = el.scrollHeight;
-  } catch (e) {
-    el.innerHTML = '<span class="empty">(failed to load)</span>';
-  }
+// ─── Confirm dialog ─────────────────────────
+function confirmDialog({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', danger = false } = {}) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirmModal');
+    const btnOk = document.getElementById('confirmOk');
+    const btnCancel = document.getElementById('confirmCancel');
+    const bg = modal.querySelector('.overlay-bg');
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMessage').textContent = message;
+    btnOk.textContent = confirmLabel;
+    btnOk.classList.toggle('btn-danger', !!danger);
+    btnOk.classList.toggle('btn-accent', !danger);
+    modal.classList.remove('hidden');
+    btnOk.focus();
+
+    const close = (val) => {
+      modal.classList.add('hidden');
+      btnOk.onclick = null;
+      btnCancel.onclick = null;
+      bg.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); close(true); }
+    };
+    btnOk.onclick = () => close(true);
+    btnCancel.onclick = () => close(false);
+    bg.onclick = () => close(false);
+    document.addEventListener('keydown', onKey);
+  });
 }
 
-function togglePreview(id) {
-  if (expandedPreviews.has(id)) {
-    expandedPreviews.delete(id);
-  } else {
-    expandedPreviews.add(id);
-  }
-  const wrap = document.querySelector(`.row-wrap[data-wrap-id="${id}"]`);
-  if (wrap) wrap.classList.toggle('expanded', expandedPreviews.has(id));
-  // Update the tail button's active state
-  const btn = wrap && wrap.querySelector('.act-btn[onclick*="togglePreview"]');
-  if (btn) btn.classList.toggle('is-active', expandedPreviews.has(id));
-  if (expandedPreviews.has(id)) refreshPreview(id);
-  updatePreviewPolling();
+// ─── Command palette ────────────────────────
+let paletteItems = [];
+let paletteActiveIdx = 0;
+const $palette = document.getElementById('paletteModal');
+const $paletteInput = document.getElementById('paletteInput');
+const $paletteResults = document.getElementById('paletteResults');
+
+async function openPalette() {
+  $palette.classList.remove('hidden');
+  $paletteInput.value = '';
+  paletteActiveIdx = 0;
+  // Load apps fresh for the palette
+  let apps = [];
+  try { apps = await api(API); } catch (e) {}
+  buildPaletteItems(apps, '');
+  $paletteInput.focus();
 }
 
-function updatePreviewPolling() {
-  if (expandedPreviews.size > 0 && !previewTimer) {
-    previewTimer = setInterval(() => {
-      for (const id of expandedPreviews) refreshPreview(id);
-    }, 1500);
-  } else if (expandedPreviews.size === 0 && previewTimer) {
-    clearInterval(previewTimer);
-    previewTimer = null;
-  }
+function closePalette() {
+  $palette.classList.add('hidden');
 }
+
+function buildPaletteItems(apps, query) {
+  const q = query.trim().toLowerCase();
+  const items = [];
+
+  // Global actions first (always shown; filtered by query)
+  const globalActions = [
+    { type: 'action', title: 'New application', hint: 'Create', icon: IC.play, run: () => document.getElementById('btnAdd').click() },
+    { type: 'action', title: 'Toggle dark mode', hint: 'Theme', icon: IC.edit, run: () => document.getElementById('btnTheme').click() },
+    { type: 'action', title: 'Show: All apps', hint: 'Filter', icon: IC.logs, run: () => setFilter('all') },
+    { type: 'action', title: 'Show: Running', hint: 'Filter', icon: IC.logs, run: () => setFilter('running') },
+    { type: 'action', title: 'Show: Stopped', hint: 'Filter', icon: IC.logs, run: () => setFilter('stopped') },
+  ];
+
+  // App actions
+  for (const a of apps) {
+    const isUp = a.status === 'running';
+    const st = a.building ? 'building' : a.status;
+    if (!isUp && !a.building) {
+      items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Start ${a.name}`, icon: IC.play, run: () => startApp(a.id) });
+    }
+    if (isUp) {
+      items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Stop ${a.name}`, icon: IC.stop, run: () => stopApp(a.id) });
+      items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Restart ${a.name}`, icon: IC.restart, run: () => restartApp(a.id) });
+    }
+    items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Logs: ${a.name}`, icon: IC.logs, run: () => showLogs(a.id, a.name) });
+    items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Edit: ${a.name}`, icon: IC.edit, run: () => editApp(a.id) });
+    if (isUp && a.port) {
+      items.push({ type: 'app', appId: a.id, appName: a.name, status: st, title: `Open http://localhost:${a.port}`, icon: IC.ext, run: () => window.open(`http://localhost:${a.port}`, '_blank', 'noopener') });
+    }
+  }
+
+  const allItems = [...globalActions, ...items];
+  const filtered = q
+    ? allItems.filter(it => it.title.toLowerCase().includes(q) || (it.appName && it.appName.toLowerCase().includes(q)))
+    : allItems;
+
+  paletteItems = filtered;
+  paletteActiveIdx = 0;
+  renderPalette();
+}
+
+function renderPalette() {
+  if (!paletteItems.length) {
+    $paletteResults.innerHTML = '<div class="palette-empty">No matches</div>';
+    return;
+  }
+  let html = '';
+  let lastType = '';
+  paletteItems.forEach((it, idx) => {
+    if (it.type !== lastType) {
+      html += `<div class="palette-section-title">${it.type === 'action' ? 'Actions' : 'Apps'}</div>`;
+      lastType = it.type;
+    }
+    const active = idx === paletteActiveIdx ? ' is-active' : '';
+    const statusChip = it.type === 'app'
+      ? `<span class="p-status ${it.status === 'running' ? 'running' : 'stopped'}">${it.status}</span>`
+      : '';
+    html += `
+      <div class="palette-item${active}" data-idx="${idx}">
+        <span class="p-icon">${it.icon || ''}</span>
+        <span class="p-title">${esc(it.title)}</span>
+        ${statusChip}
+        ${it.hint ? `<span class="p-hint">${esc(it.hint)}</span>` : ''}
+      </div>`;
+  });
+  $paletteResults.innerHTML = html;
+
+  $paletteResults.querySelectorAll('.palette-item').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      paletteActiveIdx = +el.dataset.idx;
+      updatePaletteActive();
+    });
+    el.addEventListener('click', () => runPaletteItem(+el.dataset.idx));
+  });
+
+  scrollActiveIntoView();
+}
+
+function updatePaletteActive() {
+  $paletteResults.querySelectorAll('.palette-item').forEach(el => {
+    el.classList.toggle('is-active', +el.dataset.idx === paletteActiveIdx);
+  });
+  scrollActiveIntoView();
+}
+
+function scrollActiveIntoView() {
+  const el = $paletteResults.querySelector('.palette-item.is-active');
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+function runPaletteItem(idx) {
+  const it = paletteItems[idx];
+  if (!it) return;
+  closePalette();
+  try { it.run(); } catch (e) { toast('Action failed', 'error'); }
+}
+
+function setFilter(val) {
+  statusFilter = val;
+  document.querySelectorAll('.filter-chips .chip').forEach(b =>
+    b.classList.toggle('active', (b.dataset.filter || 'all') === val)
+  );
+  applySearchFilter();
+  saveUiState();
+}
+
+$paletteInput.addEventListener('input', async e => {
+  const q = e.target.value;
+  let apps = [];
+  try { apps = await api(API); } catch (err) {}
+  buildPaletteItems(apps, q);
+});
+
+$paletteInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    paletteActiveIdx = Math.min(paletteItems.length - 1, paletteActiveIdx + 1);
+    updatePaletteActive();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    paletteActiveIdx = Math.max(0, paletteActiveIdx - 1);
+    updatePaletteActive();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    runPaletteItem(paletteActiveIdx);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closePalette();
+  }
+});
+
+$palette.querySelector('.overlay-bg').addEventListener('click', closePalette);

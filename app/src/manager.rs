@@ -39,14 +39,54 @@ pub struct SavedApp {
 // ─── Runtime State ──────────────────────────────────────────────────
 
 const LOG_CAP: usize = 2000;
+const LOG_BROADCAST_CAP: usize = 256;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LogLine {
+    pub kind: &'static str, // "run" or "build"
+    pub text: String,
+}
+
+#[derive(Clone)]
+pub struct LogSink {
+    buf: Arc<Mutex<VecDeque<String>>>,
+    tx: tokio::sync::broadcast::Sender<LogLine>,
+    kind: &'static str,
+}
+
+impl LogSink {
+    fn new(tx: tokio::sync::broadcast::Sender<LogLine>, kind: &'static str) -> Self {
+        Self {
+            buf: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
+            tx,
+            kind,
+        }
+    }
+    pub fn push(&self, text: String) {
+        {
+            let mut v = self.buf.lock().unwrap();
+            v.push_back(text.clone());
+            if v.len() > LOG_CAP { v.pop_front(); }
+        }
+        let _ = self.tx.send(LogLine { kind: self.kind, text });
+    }
+    fn clear(&self) { self.buf.lock().unwrap().clear(); }
+    fn snapshot(&self) -> String {
+        let v = self.buf.lock().unwrap();
+        let mut out = String::new();
+        for s in v.iter() { out.push_str(s); out.push('\n'); }
+        out
+    }
+}
 
 struct AppRuntime {
     entry: SavedApp,
     status: String,
     pid: Option<u32>,
     static_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
-    logs: Arc<Mutex<VecDeque<String>>>,
-    build_logs: Arc<Mutex<VecDeque<String>>>,
+    logs: LogSink,
+    build_logs: LogSink,
+    log_tx: tokio::sync::broadcast::Sender<LogLine>,
 }
 
 struct ManagerState {
@@ -126,13 +166,17 @@ impl AppManager {
                     if a.id >= state.next_id {
                         state.next_id = a.id + 1;
                     }
-                    state.apps.insert(a.id, AppRuntime {
-                        entry: a,
-                        status: "stopped".into(),
-                        pid: None,
-                        static_shutdown: None,
-                        logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
-                        build_logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
+                    state.apps.insert(a.id, {
+                        let (log_tx, _) = tokio::sync::broadcast::channel(LOG_BROADCAST_CAP);
+                        AppRuntime {
+                            entry: a,
+                            status: "stopped".into(),
+                            pid: None,
+                            static_shutdown: None,
+                            logs: LogSink::new(log_tx.clone(), "run"),
+                            build_logs: LogSink::new(log_tx.clone(), "build"),
+                            log_tx,
+                        }
                     });
                 }
             }
@@ -189,13 +233,17 @@ impl AppManager {
         let mut entry = app;
         entry.id = id;
         entry.order = if state.apps.is_empty() { 0 } else { max_order + 1 };
-        state.apps.insert(id, AppRuntime {
-            entry,
-            status: "stopped".into(),
-            pid: None,
-            static_shutdown: None,
-            logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
-            build_logs: Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAP))),
+        state.apps.insert(id, {
+            let (log_tx, _) = tokio::sync::broadcast::channel(LOG_BROADCAST_CAP);
+            AppRuntime {
+                entry,
+                status: "stopped".into(),
+                pid: None,
+                static_shutdown: None,
+                logs: LogSink::new(log_tx.clone(), "run"),
+                build_logs: LogSink::new(log_tx.clone(), "build"),
+                log_tx,
+            }
         });
         drop(state);
         self.save();
@@ -240,8 +288,8 @@ impl AppManager {
                 return Err("Already running".into());
             }
             app.status = "building".into();
-            app.build_logs.lock().unwrap().clear();
-            app.logs.lock().unwrap().clear();
+            app.build_logs.clear();
+            app.logs.clear();
             app.entry.clone()
         };
 
@@ -271,7 +319,7 @@ impl AppManager {
         let build_logs = build_logs.ok_or("App not found")?;
 
         for step in &entry.build_steps {
-            build_logs.lock().unwrap().push_back(stamped(&format!("▶ Running: {}", step)));
+            build_logs.push(stamped(&format!("▶ Running: {}", step)));
             self.append_log(entry.id, &format!("[BUILD] {}", step));
 
             let mut cmd = if cfg!(windows) {
@@ -298,9 +346,7 @@ impl AppManager {
                     let mut reader = tokio::io::BufReader::new(stdout);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                        let mut v = bl.lock().unwrap();
-                        v.push_back(stamped(&line));
-                        if v.len() > LOG_CAP { v.pop_front(); }
+                        bl.push(stamped(&line));
                         line.clear();
                     }
                 });
@@ -311,9 +357,7 @@ impl AppManager {
                     let mut reader = tokio::io::BufReader::new(stderr);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                        let mut v = bl.lock().unwrap();
-                        v.push_back(stamped(&line));
-                        if v.len() > LOG_CAP { v.pop_front(); }
+                        bl.push(stamped(&line));
                         line.clear();
                     }
                 });
@@ -359,7 +403,7 @@ impl AppManager {
                     .fallback(ServeFile::new(index));
                 let app = axum::Router::new().fallback_service(serve);
 
-                logs_c.lock().unwrap().push_back(stamped(&format!(
+                logs_c.push(stamped(&format!(
                     "Static server at http://localhost:{}  Serving: {}", port, abs_str
                 )));
 
@@ -368,7 +412,7 @@ impl AppManager {
                         .with_graceful_shutdown(async { let _ = shutdown_rx.await; })
                         .await.ok();
                 } else {
-                    logs_c.lock().unwrap().push_back(stamped(&format!("Failed to bind port {}", port)));
+                    logs_c.push(stamped(&format!("Failed to bind port {}", port)));
                 }
             });
 
@@ -447,9 +491,7 @@ impl AppManager {
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         mgr.append_log(id, &line);
-                        let mut v = l.lock().unwrap();
-                        v.push_back(stamped(&line));
-                        if v.len() > LOG_CAP { v.pop_front(); }
+                        l.push(stamped(&line));
                         line.clear();
                     }
                 });
@@ -462,9 +504,7 @@ impl AppManager {
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                         mgr.append_log(id, &format!("[ERR] {}", &line));
-                        let mut v = l.lock().unwrap();
-                        v.push_back(stamped(&line));
-                        if v.len() > LOG_CAP { v.pop_front(); }
+                        l.push(stamped(&line));
                         line.clear();
                     }
                 });
@@ -481,7 +521,7 @@ impl AppManager {
                 };
                 mgr.append_log(id, &msg);
                 mgr.log_server(&format!("{} (id={}) script exited", app_name, id));
-                logs_exit.lock().unwrap().push_back(stamped(&msg));
+                logs_exit.push(stamped(&msg));
                 let mut state = mgr.state.lock().unwrap();
                 if let Some(app) = state.apps.get_mut(&id) {
                     app.status = "stopped".into();
@@ -529,9 +569,7 @@ impl AppManager {
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &line);
-                    let mut v = l.lock().unwrap();
-                    v.push_back(stamped(&line));
-                    if v.len() > LOG_CAP { v.pop_front(); }
+                    l.push(stamped(&line));
                     line.clear();
                 }
             });
@@ -545,9 +583,7 @@ impl AppManager {
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     mgr.append_log(id, &format!("[ERR] {}", &line));
-                    let mut v = l.lock().unwrap();
-                    v.push_back(stamped(&line));
-                    if v.len() > LOG_CAP { v.pop_front(); }
+                    l.push(stamped(&line));
                     line.clear();
                 }
             });
@@ -564,7 +600,7 @@ impl AppManager {
             };
             mgr.append_log(id, &msg);
             mgr.log_server(&format!("{} (id={}) exited", app_name, id));
-            logs_exit.lock().unwrap().push_back(stamped(&msg));
+            logs_exit.push(stamped(&msg));
             let mut state = mgr.state.lock().unwrap();
             if let Some(app) = state.apps.get_mut(&id) {
                 app.status = "stopped".into();
@@ -604,19 +640,15 @@ impl AppManager {
     pub fn get_logs(&self, id: u32) -> Result<(String, String), String> {
         let state = self.state.lock().unwrap();
         let app = state.apps.get(&id).ok_or("App not found")?;
-        let logs = {
-            let v = app.logs.lock().unwrap();
-            let mut out = String::new();
-            for s in v.iter() { out.push_str(s); out.push('\n'); }
-            out
-        };
-        let build_logs = {
-            let v = app.build_logs.lock().unwrap();
-            let mut out = String::new();
-            for s in v.iter() { out.push_str(s); out.push('\n'); }
-            out
-        };
-        Ok((logs, build_logs))
+        Ok((app.logs.snapshot(), app.build_logs.snapshot()))
+    }
+
+    /// Subscribe to real-time log events for an app.
+    /// Returns a snapshot of the current logs plus a receiver for future lines.
+    pub fn subscribe_logs(&self, id: u32) -> Result<(String, String, tokio::sync::broadcast::Receiver<LogLine>), String> {
+        let state = self.state.lock().unwrap();
+        let app = state.apps.get(&id).ok_or("App not found")?;
+        Ok((app.logs.snapshot(), app.build_logs.snapshot(), app.log_tx.subscribe()))
     }
 
     pub async fn start_all(self: &Arc<Self>) {
