@@ -64,12 +64,17 @@ jobs:
             binary: appnest
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: appnest-macos-universal
+            artifact_name: appnest-macos-arm64
             binary: appnest
-            # Build a universal (fat) macOS binary: one file runs natively on
-            # both Apple Silicon and Intel. Avoids the deprecated macos-13
-            # runner, which is queueing for 20+ minutes.
-            universal: "true"
+          # Cross-compile the Intel Mac binary on the plentiful ARM runner.
+          # We deliberately avoid the deprecated `macos-13` label — it queues
+          # for 20+ minutes. rustc can target x86_64-apple-darwin from any
+          # macOS host because the Xcode SDK that ships on the ARM runner
+          # includes the Intel sysroot.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: appnest-macos-x86_64
+            binary: appnest
 
     runs-on: ${{ matrix.os }}
 
@@ -116,9 +121,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # For the universal macOS build we need BOTH darwin targets so we can
-          # compile each slice and `lipo` them together on a single runner.
-          targets: ${{ matrix.universal == 'true' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+          targets: ${{ matrix.target }}
 
       # Runner images already ship mingw-w64 under C:\ProgramData\mingw64\mingw64\bin
       # (or at worst C:\ProgramData\Chocolatey\lib\mingw). Point Cargo at it instead
@@ -168,36 +171,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build release
-        if: matrix.universal != 'true'
         working-directory: app
         shell: bash
         run: cargo build --release --target ${{ matrix.target }} --locked
-
-      - name: Build universal macOS release
-        if: matrix.universal == 'true'
-        working-directory: app
-        shell: bash
-        # Build both slices and fuse them with `lipo`. The resulting fat
-        # binary runs natively on Apple Silicon AND Intel Macs, so we ship
-        # one asset instead of two. `lipo` is preinstalled on macOS runners.
-        run: |
-          cargo build --release --target aarch64-apple-darwin --locked
-          cargo build --release --target x86_64-apple-darwin  --locked
-          mkdir -p target/universal-apple-darwin/release
-          lipo -create -output target/universal-apple-darwin/release/${{ matrix.binary }} \
-            target/aarch64-apple-darwin/release/${{ matrix.binary }} \
-            target/x86_64-apple-darwin/release/${{ matrix.binary }}
-          file target/universal-apple-darwin/release/${{ matrix.binary }}
 
       - name: Prepare artifact
         shell: bash
         run: |
           mkdir -p dist
-          if [[ "${{ matrix.universal }}" == "true" ]]; then
-            src="app/target/universal-apple-darwin/release/${{ matrix.binary }}"
-          else
-            src="app/target/${{ matrix.target }}/release/${{ matrix.binary }}"
-          fi
+          src="app/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           cp "$src" "dist/${{ matrix.binary }}"
           if [[ "${{ runner.os }}" != "Windows" ]]; then
             chmod +x "dist/${{ matrix.binary }}"
