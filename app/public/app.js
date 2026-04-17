@@ -928,6 +928,53 @@ loadPresets().then(() => {
   setInterval(loadApps, 3000);
   loadApps();
 });
+
+// ─── Update check ───────────────────────────────────
+async function checkForUpdates(manual = false) {
+  const btn = document.getElementById('btnCheckUpdate');
+  if (manual && btn) { btn.disabled = true; btn.classList.add('is-checking'); }
+  try {
+    const info = await api('/api/update-check');
+    if (!info) {
+      if (manual) toast('Could not reach update server', 'error');
+      return;
+    }
+    if (info.error && manual) {
+      toast('Update check failed: ' + info.error, 'error');
+      return;
+    }
+    if (!info.update_available) {
+      if (manual) toast(`You’re up to date (v${info.current})`, 'success');
+      return;
+    }
+    // An update is available — show the banner. Manual checks also bypass the dismissed flag.
+    const dismissed = (() => { try { return localStorage.getItem('updateDismissed'); } catch (e) { return null; } })();
+    if (!manual && dismissed && dismissed === info.latest) return;
+    const banner = document.getElementById('updateBanner');
+    const text = document.getElementById('updateBannerText');
+    if (text) text.textContent = `New version ${info.latest} available (you have ${info.current}).`;
+    const openBtn = document.getElementById('btnOpenUpdate');
+    if (openBtn) openBtn.onclick = async () => {
+      await api('/api/update-open', 'POST', { url: info.release_url });
+    };
+    const dismissBtn = document.getElementById('btnDismissUpdate');
+    if (dismissBtn) dismissBtn.onclick = () => {
+      banner.classList.add('hidden');
+      try { localStorage.setItem('updateDismissed', info.latest); } catch (e) {}
+    };
+    banner.classList.remove('hidden');
+    if (manual) toast(`Update available: ${info.latest}`, 'info');
+  } catch (e) {
+    if (manual) toast('Update check failed', 'error');
+  } finally {
+    if (manual && btn) { btn.disabled = false; btn.classList.remove('is-checking'); }
+  }
+}
+// Run once on load, then once every 6 hours while the app is open.
+checkForUpdates();
+setInterval(() => checkForUpdates(false), 6 * 60 * 60 * 1000);
+const $btnCheckUpdate = document.getElementById('btnCheckUpdate');
+if ($btnCheckUpdate) $btnCheckUpdate.onclick = () => checkForUpdates(true);
 // ─── Theme toggle ───────────────────────────
 const $btnTheme = document.getElementById('btnTheme');
 if ($btnTheme) {

@@ -34,6 +34,8 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/pick-file", get(pick_file))
         .route("/api/apps/:id/open-explorer", post(open_explorer))
         .route("/api/apps/:id/open-terminal", post(open_terminal))
+        .route("/api/update-check", get(check_update))
+        .route("/api/update-open", post(open_update_page))
         .route("/api/logs", get(get_server_logs))
         .fallback(static_handler)
         .with_state(manager);
@@ -392,4 +394,127 @@ async fn open_terminal(
         }
     }).await.unwrap_or_else(|e| Err(e.to_string()));
     match result { Ok(()) => ok_resp(), Err(e) => err_resp(e) }
+}
+
+// ─── Self-update check (GitHub releases) ───────────────────────────
+
+const UPDATE_REPO: &str = "BipulRaman/AppNest";
+const UPDATE_RELEASES_URL: &str = "https://github.com/BipulRaman/AppNest/releases";
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    current: String,
+    latest: Option<String>,
+    update_available: bool,
+    release_url: String,
+    asset_url: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GhRelease {
+    tag_name: Option<String>,
+    html_url: Option<String>,
+    prerelease: Option<bool>,
+    draft: Option<bool>,
+    assets: Option<Vec<GhAsset>>,
+}
+
+#[derive(Deserialize)]
+struct GhAsset {
+    name: Option<String>,
+    browser_download_url: Option<String>,
+}
+
+fn parse_version(s: &str) -> Vec<u32> {
+    s.trim_start_matches('v')
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse::<u32>().unwrap_or(0))
+        .collect()
+}
+
+fn version_gt(a: &str, b: &str) -> bool {
+    let av = parse_version(a);
+    let bv = parse_version(b);
+    for i in 0..av.len().max(bv.len()) {
+        let x = av.get(i).copied().unwrap_or(0);
+        let y = bv.get(i).copied().unwrap_or(0);
+        if x != y { return x > y; }
+    }
+    false
+}
+
+async fn check_update() -> Json<UpdateInfo> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let url = format!("https://api.github.com/repos/{}/releases/latest", UPDATE_REPO);
+    let client = match reqwest::Client::builder()
+        .user_agent(format!("AppNest/{}", current))
+        .timeout(std::time::Duration::from_secs(8))
+        .build() {
+        Ok(c) => c,
+        Err(e) => return Json(UpdateInfo {
+            current, latest: None, update_available: false,
+            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
+            error: Some(format!("http client: {}", e)),
+        }),
+    };
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => match resp.json::<GhRelease>().await {
+            Ok(rel) => {
+                let is_bad = rel.draft.unwrap_or(false) || rel.prerelease.unwrap_or(false);
+                let latest = rel.tag_name.clone().unwrap_or_default();
+                let asset_url = rel.assets.as_ref().and_then(|assets| {
+                    assets.iter().find_map(|a| {
+                        let name = a.name.as_deref().unwrap_or("");
+                        if name.eq_ignore_ascii_case("appnest.exe") {
+                            a.browser_download_url.clone()
+                        } else { None }
+                    })
+                });
+                let release_url = rel.html_url.unwrap_or_else(|| UPDATE_RELEASES_URL.into());
+                let update_available = !is_bad && !latest.is_empty() && version_gt(&latest, &current);
+                Json(UpdateInfo {
+                    current,
+                    latest: if latest.is_empty() { None } else { Some(latest) },
+                    update_available,
+                    release_url,
+                    asset_url,
+                    error: None,
+                })
+            }
+            Err(e) => Json(UpdateInfo {
+                current, latest: None, update_available: false,
+                release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
+                error: Some(format!("parse: {}", e)),
+            }),
+        },
+        Ok(resp) => Json(UpdateInfo {
+            current, latest: None, update_available: false,
+            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
+            error: Some(format!("github status {}", resp.status())),
+        }),
+        Err(e) => Json(UpdateInfo {
+            current, latest: None, update_available: false,
+            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
+            error: Some(format!("request: {}", e)),
+        }),
+    }
+}
+
+#[derive(Deserialize)]
+struct OpenUrlReq { url: Option<String> }
+
+async fn open_update_page(Json(body): Json<OpenUrlReq>) -> Json<OkResp> {
+    let target = body.url.unwrap_or_else(|| UPDATE_RELEASES_URL.into());
+    if !target.starts_with("https://github.com/BipulRaman/AppNest/") {
+        return err_resp("URL not allowed");
+    }
+    match tokio::task::spawn_blocking(move || open::that_detached(&target).map_err(|e| e.to_string()))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()))
+    {
+        Ok(()) => ok_resp(),
+        Err(e) => err_resp(e),
+    }
 }

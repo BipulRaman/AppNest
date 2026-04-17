@@ -26,6 +26,9 @@
       <h1>AppNest</h1>
     </div>
     <div class="header-right">
+      <button class="theme-toggle" id="btnCheckUpdate" title="Check for updates" aria-label="Check for updates">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
       <button class="theme-toggle" id="btnTheme" title="Toggle theme" aria-label="Toggle theme">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -62,6 +65,12 @@
   </main>
 
   <div id="toastBox" class="toast-wrap"></div>
+  <div id="updateBanner" class="update-banner hidden" role="status" aria-live="polite">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span id="updateBannerText">A new version of AppNest is available.</span>
+    <button class="btn btn-primary btn-sm" id="btnOpenUpdate">Open release</button>
+    <button class="icon-btn" id="btnDismissUpdate" title="Dismiss" aria-label="Dismiss update notification"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
 
   <!-- ═══ Confirm Dialog ═══ -->
   <div id="confirmModal" class="overlay hidden"><div class="overlay-bg"></div>
