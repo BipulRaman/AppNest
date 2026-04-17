@@ -1,5 +1,9 @@
 const API = '/api/apps';
 let pollTimer = null, currentLogId = null, currentLogTab = 'run';
+let searchQuery = '';
+let statusFilter = 'all'; // 'all' | 'running' | 'stopped'
+const expandedPreviews = new Set(); // ids whose inline preview is open
+let previewTimer = null;
 
 // ─── Utilities ──────────────────────────────────────
 async function api(url, method = 'GET', body) {
@@ -41,6 +45,8 @@ const IC = {
   stop:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   restart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
   logs:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  tail:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
+  ext:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
   edit:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   trash:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
   drag:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
@@ -72,6 +78,8 @@ async function loadApps() {
   const running = apps.filter(a => a.status === 'running').length;
   document.getElementById('statRunning').textContent = running;
   document.getElementById('statStopped').textContent = apps.length - running;
+  const $all = document.getElementById('statAll');
+  if ($all) $all.textContent = apps.length;
 
   if (!apps.length) {
     $list.innerHTML = `
@@ -83,7 +91,10 @@ async function loadApps() {
   }
 
   $list.innerHTML = apps.map(renderRow).join('');
+  applySearchFilter();
   initDragAndDrop();
+  // Refresh any open inline previews immediately
+  for (const id of expandedPreviews) refreshPreview(id);
 }
 
 function renderRow(a) {
@@ -92,11 +103,22 @@ function renderRow(a) {
   const tagLabel = st === 'running' ? 'Running' : st === 'building' ? 'Building' : 'Stopped';
   const isUp = st === 'running';
   const isBuild = st === 'building';
+  const rowClass = isUp ? 'is-running' : (isBuild ? 'is-building' : '');
+  const wrapClass = expandedPreviews.has(a.id) ? 'row-wrap expanded' : 'row-wrap';
 
-  const run = a.scriptFile ? `Script · ${esc(a.scriptFile)}` : a.staticDir ? `Static · ${esc(a.staticDir)}` : esc(a.runCommand || '');
+  const portHtml = a.port
+    ? (isUp
+        ? `<a class="port-chip is-live" href="http://localhost:${a.port}" target="_blank" rel="noopener" title="Open in browser" onclick="event.stopPropagation()">Port <b>${a.port}</b>${IC.ext}</a>`
+        : `<span class="port-chip">Port <b>${a.port}</b></span>`)
+    : '';
+
+  const tailBtn = (isUp || isBuild)
+    ? `<button class="act-btn ${expandedPreviews.has(a.id) ? 'is-active' : ''}" onclick="togglePreview(${a.id})" title="Quick log preview">${IC.tail}</button>`
+    : '';
 
   return `
-  <div class="app-row" draggable="true" data-id="${a.id}">
+  <div class="${wrapClass}" data-wrap-id="${a.id}">
+  <div class="app-row ${rowClass}" draggable="true" data-id="${a.id}" data-status="${isUp ? 'running' : 'stopped'}" data-name="${esc(a.name).toLowerCase()}" data-type="${esc(a.type).toLowerCase()}" data-dir="${esc(a.projectDir).toLowerCase()}">
     <div class="drag-handle" title="Drag to reorder">${IC.drag}</div>
     <div class="status-dot ${st}"></div>
     <div class="app-info">
@@ -107,7 +129,7 @@ function renderRow(a) {
       </div>
       <div class="app-meta">
         <span><span class="meta-label">${esc(a.type)}</span></span>
-        ${a.port ? `<span>Port <b>${a.port}</b></span>` : ''}
+        ${portHtml}
         ${a.pid ? `<span>PID <b>${a.pid}</b></span>` : ''}
         <span class="app-dir" title="${esc(a.projectDir)}">${esc(a.projectDir)}</span>
       </div>
@@ -121,15 +143,31 @@ function renderRow(a) {
         <button class="act-btn act-stop" onclick="stopApp(${a.id})">${IC.stop} Stop</button>
         <button class="act-btn" onclick="restartApp(${a.id})">${IC.restart}</button>
       ` : ''}
+      ${tailBtn}
       <button class="act-btn" onclick="showLogs(${a.id},'${esc(a.name)}')">${IC.logs}</button>
       <button class="act-btn" onclick="editApp(${a.id})">${IC.edit}</button>
       <button class="act-btn" onclick="deleteApp(${a.id})">${IC.trash}</button>
     </div>
+  </div>
+  <div class="log-preview" id="preview-${a.id}"><span class="empty">Loading…</span></div>
   </div>`;
 }
 
+// ─── Search ----------------------------------------
+function applySearchFilter() {
+  const q = searchQuery.trim().toLowerCase();
+  $list.querySelectorAll('.row-wrap').forEach(w => {
+    const row = w.querySelector('.app-row');
+    if (!row) return;
+    const hay = (row.dataset.name || '') + ' ' + (row.dataset.type || '') + ' ' + (row.dataset.dir || '');
+    const matchesText = q.length === 0 || hay.indexOf(q) !== -1;
+    const matchesStatus = statusFilter === 'all' || row.dataset.status === statusFilter;
+    w.classList.toggle('filtered-out', !(matchesText && matchesStatus));
+  });
+}
+
 // ─── Drag & Drop Reorder ────────────────────────────
-let dragSrcEl = null;
+let dragSrcEl = null; // .row-wrap being dragged
 
 function initDragAndDrop() {
   const rows = $list.querySelectorAll('.app-row');
@@ -144,7 +182,7 @@ function initDragAndDrop() {
 }
 
 function handleDragStart(e) {
-  dragSrcEl = this;
+  dragSrcEl = this.parentElement; // .row-wrap
   this.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', this.dataset.id);
@@ -154,7 +192,7 @@ function handleDragOver(e) {
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const target = this.closest('.app-row');
-  if (!target || target === dragSrcEl) return;
+  if (!target || target.parentElement === dragSrcEl) return;
 
   const rect = target.getBoundingClientRect();
   const midY = rect.top + rect.height / 2;
@@ -174,15 +212,16 @@ function handleDrop(e) {
   e.stopPropagation();
   e.preventDefault();
   const target = this.closest('.app-row');
-  if (!target || target === dragSrcEl) return;
+  if (!target || target.parentElement === dragSrcEl) return;
 
+  const targetWrap = target.parentElement;
   const rect = target.getBoundingClientRect();
   const before = e.clientY < rect.top + rect.height / 2;
 
   if (before) {
-    $list.insertBefore(dragSrcEl, target);
+    $list.insertBefore(dragSrcEl, targetWrap);
   } else {
-    $list.insertBefore(dragSrcEl, target.nextSibling);
+    $list.insertBefore(dragSrcEl, targetWrap.nextSibling);
   }
 
   target.classList.remove('drop-above', 'drop-below');
@@ -448,3 +487,134 @@ loadPresets().then(() => {
   setInterval(loadApps, 3000);
   loadApps();
 });
+// ─── Theme toggle ───────────────────────────
+const $btnTheme = document.getElementById('btnTheme');
+if ($btnTheme) {
+  $btnTheme.onclick = () => {
+    const cur = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+  };
+}
+
+// ─── Search ──────────────────────────────
+const $search = document.getElementById('searchInput');
+if ($search) {
+  $search.addEventListener('input', e => {
+    searchQuery = e.target.value;
+    applySearchFilter();
+  });
+}
+
+// ─── Status filter chips ──────────────────
+document.querySelectorAll('.filter-chips .chip').forEach(c => {
+  c.addEventListener('click', () => {
+    statusFilter = c.dataset.filter || 'all';
+    document.querySelectorAll('.filter-chips .chip').forEach(b =>
+      b.classList.toggle('active', b === c)
+    );
+    applySearchFilter();
+  });
+});
+
+// ─── Keyboard shortcuts ─────────────────────
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+  if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    $search && $search.focus();
+    $search && $search.select();
+  } else if ((e.key === 'n' || e.key === 'N') && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const anyOpen = document.querySelector('.overlay:not(.hidden)');
+    if (!anyOpen) {
+      e.preventDefault();
+      document.getElementById('btnAdd').click();
+    }
+  }
+});
+
+// ─── Inline log tail ──────────────────────────
+async function refreshPreview(id) {
+  const el = document.getElementById(`preview-${id}`);
+  if (!el) return;
+  try {
+    const d = await api(`${API}/${id}/logs`);
+    const raw = (d.logs || '').trim();
+    if (!raw) { el.innerHTML = '<span class="empty">(waiting for output…)</span>'; return; }
+    const lines = raw.split('\n');
+    const tail = lines.slice(-6).join('\n');
+    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+    el.textContent = tail;
+    if (wasAtBottom) el.scrollTop = el.scrollHeight;
+  } catch (e) {
+    el.innerHTML = '<span class="empty">(failed to load)</span>';
+  }
+}
+
+function togglePreview(id) {
+  if (expandedPreviews.has(id)) expandedPreviews.delete(id);
+  else expandedPreviews.add(id);
+  const wrap = document.querySelector(`.row-wrap[data-wrap-id="${id}"]`);
+  if (wrap) wrap.classList.toggle('expanded', expandedPreviews.has(id));
+  const btn = wrap && wrap.querySelector('.act-btn[onclick*="togglePreview"]');
+  if (btn) btn.classList.toggle('is-active', expandedPreviews.has(id));
+  if (expandedPreviews.has(id)) refreshPreview(id);
+  updatePreviewPolling();
+}
+
+function updatePreviewPolling() {
+  if (expandedPreviews.size > 0 && !previewTimer) {
+    previewTimer = setInterval(() => {
+      for (const id of expandedPreviews) refreshPreview(id);
+    }, 1500);
+  } else if (expandedPreviews.size === 0 && previewTimer) {
+    clearInterval(previewTimer);
+    previewTimer = null;
+  }
+}
+
+// ─── Inline log tail ───────────────────────
+async function refreshPreview(id) {
+  const el = document.getElementById(`preview-${id}`);
+  if (!el) return;
+  try {
+    const d = await api(`${API}/${id}/logs`);
+    const raw = (d.logs || '').trim();
+    if (!raw) { el.innerHTML = '<span class="empty">(waiting for output…)</span>'; return; }
+    const lines = raw.split('\n');
+    const tail = lines.slice(-6).join('\n');
+    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+    el.textContent = tail;
+    if (wasAtBottom) el.scrollTop = el.scrollHeight;
+  } catch (e) {
+    el.innerHTML = '<span class="empty">(failed to load)</span>';
+  }
+}
+
+function togglePreview(id) {
+  if (expandedPreviews.has(id)) {
+    expandedPreviews.delete(id);
+  } else {
+    expandedPreviews.add(id);
+  }
+  const wrap = document.querySelector(`.row-wrap[data-wrap-id="${id}"]`);
+  if (wrap) wrap.classList.toggle('expanded', expandedPreviews.has(id));
+  // Update the tail button's active state
+  const btn = wrap && wrap.querySelector('.act-btn[onclick*="togglePreview"]');
+  if (btn) btn.classList.toggle('is-active', expandedPreviews.has(id));
+  if (expandedPreviews.has(id)) refreshPreview(id);
+  updatePreviewPolling();
+}
+
+function updatePreviewPolling() {
+  if (expandedPreviews.size > 0 && !previewTimer) {
+    previewTimer = setInterval(() => {
+      for (const id of expandedPreviews) refreshPreview(id);
+    }, 1500);
+  } else if (expandedPreviews.size === 0 && previewTimer) {
+    clearInterval(previewTimer);
+    previewTimer = null;
+  }
+}
