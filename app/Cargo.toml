@@ -1,6 +1,6 @@
 [package]
 name = "appnest"
-version = "1.0.0"
+version = "1.0.22"
 edition = "2021"
 description = "Local app manager for developers — build, run, and monitor projects from a single dashboard"
 
