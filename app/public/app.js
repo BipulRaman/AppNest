@@ -276,6 +276,9 @@ function renderRow(a) {
         <button class="act-btn act-start" onclick="startApp(${a.id})" aria-label="Start ${esc(a.name)}">${IC.play} Start</button>
         <button class="act-btn" onclick="startApp(${a.id},true)" title="Start without build" aria-label="Start ${esc(a.name)} without build">${IC.play}</button>
       `) : ''}
+      ${isBuild ? `
+        <button class="act-btn act-stop" onclick="stopApp(${a.id})" title="Cancel start / build" aria-label="Cancel starting ${esc(a.name)}">${IC.stop} Cancel</button>
+      ` : ''}
       ${isUp ? `
         <button class="act-btn act-stop" onclick="stopApp(${a.id})" aria-label="Stop ${esc(a.name)}">${IC.stop} Stop</button>
         <button class="act-btn" onclick="restartApp(${a.id})" ${pendingStart.has(a.id) ? 'disabled' : ''} title="Restart" aria-label="Restart ${esc(a.name)}">${IC.restart}</button>

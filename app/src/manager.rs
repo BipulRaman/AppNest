@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncBufReadExt;
 use tokio::runtime::Handle;
@@ -83,6 +84,14 @@ struct AppRuntime {
     entry: SavedApp,
     status: String,
     pid: Option<u32>,
+    /// PID of the *build* step currently running (if any). Separate from `pid`
+    /// because builds and runs are distinct child processes and we want to be
+    /// able to cancel a build-in-progress without affecting any later run.
+    build_pid: Option<u32>,
+    /// Set by `stop_app` when the user asks to cancel a starting/building app.
+    /// The build loop checks this between steps and before awaiting the next
+    /// child, so a Stop click interrupts the whole chain promptly.
+    cancel_requested: Arc<AtomicBool>,
     static_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     logs: LogSink,
     build_logs: LogSink,
@@ -173,6 +182,8 @@ impl AppManager {
                             entry: a,
                             status: "stopped".into(),
                             pid: None,
+                            build_pid: None,
+                            cancel_requested: Arc::new(AtomicBool::new(false)),
                             static_shutdown: None,
                             logs: LogSink::new(log_tx.clone(), "run"),
                             build_logs: LogSink::new(log_tx.clone(), "build"),
@@ -249,6 +260,8 @@ impl AppManager {
                 entry,
                 status: "stopped".into(),
                 pid: None,
+                build_pid: None,
+                cancel_requested: Arc::new(AtomicBool::new(false)),
                 static_shutdown: None,
                 logs: LogSink::new(log_tx.clone(), "run"),
                 build_logs: LogSink::new(log_tx.clone(), "build"),
@@ -301,6 +314,9 @@ impl AppManager {
             app.status = "building".into();
             app.build_logs.clear();
             app.logs.clear();
+            // Reset the cancel flag so a prior Stop during a failed start
+            // doesn't immediately abort this fresh attempt.
+            app.cancel_requested.store(false, Ordering::SeqCst);
             app.entry.clone()
         };
 
@@ -314,7 +330,29 @@ impl AppManager {
             }
         }
 
-        self.start_process(id, &entry).await
+        // If `start_process` hits any early-return error path (spawn failure,
+        // script not found, command not on PATH on macOS/Linux, etc.) the app
+        // is still marked "building" from a few lines up. Make sure that on
+        // ANY failure we reset the visible status back to "stopped" so the
+        // dashboard doesn't get stuck showing "Starting…" forever.
+        match self.start_process(id, &entry).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let mut state = self.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&id) {
+                    if app.status != "running" {
+                        app.status = "stopped".into();
+                        app.pid = None;
+                        app.started_at = None;
+                    }
+                }
+                // Surface the failure in the app's run-log so the user can
+                // actually see why it didn't start (otherwise the log modal
+                // is empty and the only signal is the error toast).
+                self.append_log(id, &format!("Start failed: {}", e));
+                Err(e)
+            }
+        }
     }
 
     async fn run_build(&self, entry: &SavedApp) -> Result<(), String> {
@@ -323,13 +361,19 @@ impl AppManager {
         }
         let cwd = &entry.project_dir;
         let env = build_env(entry);
-        let build_logs = {
+        let (build_logs, cancel) = {
             let state = self.state.lock().unwrap();
-            state.apps.get(&entry.id).map(|a| a.build_logs.clone())
+            let app = state.apps.get(&entry.id).ok_or("App not found")?;
+            (app.build_logs.clone(), app.cancel_requested.clone())
         };
-        let build_logs = build_logs.ok_or("App not found")?;
 
         for step in &entry.build_steps {
+            // Honour any pending Stop *before* we spawn the next step so we
+            // don't start fresh children after the user asked to cancel.
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Cancelled by user".into());
+            }
+
             build_logs.push(stamped(&format!("▶ Running: {}", step)));
             self.append_log(entry.id, &format!("[BUILD] {}", step));
 
@@ -352,6 +396,16 @@ impl AppManager {
             apply_unix_session(&mut cmd);
 
             let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+            let build_pid = child.id().unwrap_or(0);
+
+            // Record the PID so `stop_app` can kill the running step's
+            // process-tree when a Stop click comes in mid-build.
+            if build_pid != 0 {
+                let mut state = self.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&entry.id) {
+                    app.build_pid = Some(build_pid);
+                }
+            }
 
             if let Some(stdout) = child.stdout.take() {
                 let bl = build_logs.clone();
@@ -376,7 +430,39 @@ impl AppManager {
                 });
             }
 
-            let status = child.wait().await.map_err(|e| e.to_string())?;
+            // Race the step's completion against the cancel flag. We poll the
+            // flag on a short interval instead of plumbing a full Notify
+            // through the whole manager — keeps this change self-contained.
+            let wait_result = loop {
+                tokio::select! {
+                    biased;
+                    res = child.wait() => break res,
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {
+                        if cancel.load(Ordering::SeqCst) {
+                            // `stop_app` already called kill_tree on the
+                            // build_pid, which triggers our process group.
+                            // Await the exit so we don't leak a zombie, then
+                            // surface the cancellation.
+                            let _ = child.wait().await;
+                            let mut state = self.state.lock().unwrap();
+                            if let Some(app) = state.apps.get_mut(&entry.id) {
+                                app.build_pid = None;
+                            }
+                            return Err("Cancelled by user".into());
+                        }
+                    }
+                }
+            };
+
+            // Step finished on its own — clear the tracked PID.
+            {
+                let mut state = self.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&entry.id) {
+                    app.build_pid = None;
+                }
+            }
+
+            let status = wait_result.map_err(|e| e.to_string())?;
             if !status.success() {
                 return Err(format!("Step failed (exit {}): {}", status, step));
             }
@@ -642,9 +728,14 @@ impl AppManager {
     pub fn stop_app(&self, id: u32) -> Result<(), String> {
         let mut state = self.state.lock().unwrap();
         let app = state.apps.get_mut(&id).ok_or("App not found")?;
-        if app.status != "running" {
+        // Allow stopping in both "running" AND "building" — a Stop click
+        // during a long build (e.g. npm install) should cancel that build
+        // and kill any children it spawned, not silently error out.
+        if app.status != "running" && app.status != "building" {
             return Err("Not running".into());
         }
+        // Signal the build loop (if any) to bail out at the next checkpoint.
+        app.cancel_requested.store(true, Ordering::SeqCst);
         stop_runtime(app);
         Ok(())
     }
@@ -896,7 +987,13 @@ fn build_env(entry: &SavedApp) -> HashMap<String, String> {
 }
 
 fn stop_runtime(app: &mut AppRuntime) {
+    // Kill the run process (if running) AND the in-flight build step (if
+    // building). They're distinct PIDs; a Stop click while "Starting…"
+    // needs to tear down whichever one is currently alive.
     if let Some(pid) = app.pid.take() {
+        kill_tree(pid);
+    }
+    if let Some(pid) = app.build_pid.take() {
         kill_tree(pid);
     }
     if let Some(tx) = app.static_shutdown.take() {
