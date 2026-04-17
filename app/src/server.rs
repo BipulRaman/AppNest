@@ -448,56 +448,52 @@ fn version_gt(a: &str, b: &str) -> bool {
 async fn check_update() -> Json<UpdateInfo> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let url = format!("https://api.github.com/repos/{}/releases/latest", UPDATE_REPO);
-    let client = match reqwest::Client::builder()
-        .user_agent(format!("AppNest/{}", current))
-        .timeout(std::time::Duration::from_secs(8))
-        .build() {
-        Ok(c) => c,
-        Err(e) => return Json(UpdateInfo {
-            current, latest: None, update_available: false,
-            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
-            error: Some(format!("http client: {}", e)),
-        }),
-    };
-    match client.get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => match resp.json::<GhRelease>().await {
-            Ok(rel) => {
-                let is_bad = rel.draft.unwrap_or(false) || rel.prerelease.unwrap_or(false);
-                let latest = rel.tag_name.clone().unwrap_or_default();
-                let asset_url = rel.assets.as_ref().and_then(|assets| {
-                    assets.iter().find_map(|a| {
-                        let name = a.name.as_deref().unwrap_or("");
-                        if name.eq_ignore_ascii_case("appnest.exe") {
-                            a.browser_download_url.clone()
-                        } else { None }
-                    })
-                });
-                let release_url = rel.html_url.unwrap_or_else(|| UPDATE_RELEASES_URL.into());
-                let update_available = !is_bad && !latest.is_empty() && version_gt(&latest, &current);
-                Json(UpdateInfo {
-                    current,
-                    latest: if latest.is_empty() { None } else { Some(latest) },
-                    update_available,
-                    release_url,
-                    asset_url,
-                    error: None,
+    let ua = format!("AppNest/{}", current);
+    // ureq is blocking; run on the blocking pool so we don't stall the async runtime.
+    let result: Result<GhRelease, String> = tokio::task::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(8))
+            .user_agent(&ua)
+            .build();
+        match agent.get(&url).call() {
+            Ok(resp) => resp.into_json::<GhRelease>().map_err(|e| format!("parse: {}", e)),
+            Err(ureq::Error::Status(code, _)) => Err(format!("github status {}", code)),
+            Err(e) => Err(format!("request: {}", e)),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("join: {}", e)));
+
+    match result {
+        Ok(rel) => {
+            let is_bad = rel.draft.unwrap_or(false) || rel.prerelease.unwrap_or(false);
+            let latest = rel.tag_name.clone().unwrap_or_default();
+            let asset_url = rel.assets.as_ref().and_then(|assets| {
+                assets.iter().find_map(|a| {
+                    let name = a.name.as_deref().unwrap_or("");
+                    if name.eq_ignore_ascii_case("appnest.exe") {
+                        a.browser_download_url.clone()
+                    } else { None }
                 })
-            }
-            Err(e) => Json(UpdateInfo {
-                current, latest: None, update_available: false,
-                release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
-                error: Some(format!("parse: {}", e)),
-            }),
-        },
-        Ok(resp) => Json(UpdateInfo {
-            current, latest: None, update_available: false,
-            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
-            error: Some(format!("github status {}", resp.status())),
-        }),
+            });
+            let release_url = rel.html_url.unwrap_or_else(|| UPDATE_RELEASES_URL.into());
+            let update_available = !is_bad && !latest.is_empty() && version_gt(&latest, &current);
+            Json(UpdateInfo {
+                current,
+                latest: if latest.is_empty() { None } else { Some(latest) },
+                update_available,
+                release_url,
+                asset_url,
+                error: None,
+            })
+        }
         Err(e) => Json(UpdateInfo {
-            current, latest: None, update_available: false,
-            release_url: UPDATE_RELEASES_URL.into(), asset_url: None,
-            error: Some(format!("request: {}", e)),
+            current,
+            latest: None,
+            update_available: false,
+            release_url: UPDATE_RELEASES_URL.into(),
+            asset_url: None,
+            error: Some(e),
         }),
     }
 }

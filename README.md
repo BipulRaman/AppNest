@@ -4,7 +4,7 @@ A developer productivity tool for managing and hosting local web applications. B
 
 Stop juggling terminals. One app to build, host, and watch them all.
 
-**Single 2MB executable. No runtime dependencies. System tray integration. Built with Rust.**
+**Single ~2 MB executable. No runtime dependencies. System tray integration. Built with Rust.**
 
 ---
 
@@ -18,11 +18,20 @@ Stop juggling terminals. One app to build, host, and watch them all.
 - **Local hosting manager** — Host multiple apps on different ports simultaneously from one place.
 - **Multi-framework presets** — .NET, Node.js, React, Next.js, Angular, Vue, Express with smart defaults (customizable via `presets.json`).
 - **Static file serving** — Serve React/Angular/Vue build output directly without extra tools.
-- **Live logs with color** — Runtime and build output with clickable URLs, timestamped lines, and color-coded errors/warnings.
+- **Live log streaming** — Runtime and build output streamed via Server-Sent Events with ANSI color preservation, clickable URLs, timestamped lines, and error/warning highlighting.
+- **In-log search & follow mode** — Filter log lines on the fly, highlight matches, and pause/resume auto-scroll with a single click.
+- **Inline log preview** — Quick tail of the latest output right inside each row — no need to open the full modal.
+- **Command palette** — `Ctrl/Cmd+K` opens a fast fuzzy launcher for every app and action.
+- **Dark & light themes** — Indigo accent with a proper dark mode; the theme toggle persists across launches.
+- **Uptime, PID, port chip** — Live uptime next to each running app; port chip opens the URL in the browser (left-click) or copies it to clipboard (right-click).
+- **Pending-state buttons** — Start/Restart buttons visually lock while a transition is in flight to prevent double-fires.
 - **System tray** — Runs in background. Start All, Stop All, or Quit from the tray menu.
 - **Auto-start** — Flag apps to start automatically when AppNest launches.
 - **Persistent logs** — Export or copy logs. File-based logs stored per app with timestamps.
-- **Native file dialogs** — Windows folder/file picker for selecting project directories.
+- **Open folder / terminal** — From the logs modal, jump straight into the project folder in Explorer or a native terminal (Windows Terminal, PowerShell, macOS Terminal, or the user's preferred Linux emulator).
+- **Drag-to-reorder** — Arrange apps in the order you want them listed.
+- **Self-update notifier** — Optional check against GitHub releases, with an unobtrusive banner that links to the release page.
+- **Native file dialogs** — OS-native folder/file pickers for selecting project directories and scripts.
 - **Zero config** — No YAML, no Docker, no config files. Everything is configured through the UI.
 - **Portable** — Single `.exe` with all HTML/CSS/JS embedded. App data stored in `%APPDATA%\AppNest\`.
 
@@ -129,9 +138,11 @@ AppNest/
 |-----------|-----------|
 | Backend | Rust, [Axum](https://github.com/tokio-rs/axum), [Tokio](https://tokio.rs) |
 | Frontend | Vanilla HTML/CSS/JS (embedded via [rust-embed](https://github.com/pyrossh/rust-embed)) |
+| Live log streaming | Server-Sent Events via `axum::response::sse`, `async-stream`, `futures-util` |
 | System tray | [tray-icon](https://github.com/nicholasneo78/tray-icon) |
 | File dialogs | [rfd](https://github.com/PolyMeilex/rfd) |
 | Static serving | [tower-http](https://github.com/tower-rs/tower-http) ServeDir |
+| Update check | [ureq](https://github.com/algesten/ureq) against the GitHub Releases API |
 
 ## FAQ
 

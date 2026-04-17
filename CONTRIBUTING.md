@@ -29,8 +29,8 @@ Thanks for your interest in contributing! Here's how to get set up.
 ### 2. Clone and build
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/AppNest.git
-cd AppNest
+git clone https://github.com/BipulRaman/AppNest.git
+cd AppNest/app
 
 # Ensure MinGW is in PATH
 $env:PATH = "C:\msys64\mingw64\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
@@ -49,7 +49,7 @@ Dashboard opens at `http://localhost:1234`. The app runs in the system tray.
 
 ### 4. Develop
 
-Edit files in `src/` (Rust backend) or `public/` (frontend). Then rebuild:
+Edit files in `app/src/` (Rust backend) or `app/public/` (frontend). Then rebuild:
 
 ```powershell
 cargo build --release
@@ -60,10 +60,11 @@ cargo build --release
 ## Project Layout
 
 ```
-src/main.rs      → Entry point, system tray, event loop
-src/manager.rs   → App lifecycle, process spawning, logging
-src/server.rs    → Axum HTTP routes, embedded static files, native dialogs
-public/          → Frontend (compiled into the binary)
+app/src/main.rs      → Entry point, system tray, event loop
+app/src/manager.rs   → App lifecycle, process spawning, logging, log broadcast
+app/src/server.rs    → Axum HTTP routes, SSE log streaming, embedded assets, native dialogs
+app/public/          → Frontend (compiled into the binary)
+.github/workflows/   → Release pipeline (stamps Cargo.toml version from tag, publishes exe)
 ```
 
 ## Guidelines
