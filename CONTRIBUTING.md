@@ -1,4 +1,4 @@
-# Contributing to MyServers
+# Contributing to AppNest
 
 Thanks for your interest in contributing! Here's how to get set up.
 
@@ -29,8 +29,8 @@ Thanks for your interest in contributing! Here's how to get set up.
 ### 2. Clone and build
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/MyServers.git
-cd MyServers
+git clone https://github.com/YOUR_USERNAME/AppNest.git
+cd AppNest
 
 # Ensure MinGW is in PATH
 $env:PATH = "C:\msys64\mingw64\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
@@ -42,7 +42,7 @@ cargo build --release
 ### 3. Run
 
 ```powershell
-.\target\release\myservers.exe
+.\target\release\appnest.exe
 ```
 
 Dashboard opens at `http://localhost:1234`. The app runs in the system tray.

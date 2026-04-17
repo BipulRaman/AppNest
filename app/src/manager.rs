@@ -97,7 +97,7 @@ impl AppManager {
                     .unwrap_or_else(|| std::env::current_dir().unwrap())
             });
 
-        let base_dir = app_data.join("MyServers");
+        let base_dir = app_data.join("AppNest");
         let data_file = base_dir.join("apps.json");
         let logs_dir = base_dir.join("logs");
         let _ = fs::create_dir_all(&logs_dir);

@@ -1,11 +1,11 @@
 [package]
-name = "myservers"
+name = "appnest"
 version = "1.0.0"
 edition = "2021"
-description = "Local CI/CD server manager — desktop app with system tray"
+description = "Local app manager for developers — build, run, and monitor projects from a single dashboard"
 
 [[bin]]
-name = "myservers"
+name = "appnest"
 path = "src/main.rs"
 
 [dependencies]

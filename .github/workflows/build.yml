@@ -57,18 +57,18 @@ jobs:
       - name: Prepare artifact
         run: |
           New-Item -ItemType Directory -Force dist
-          Copy-Item app/target/x86_64-pc-windows-gnu/release/myservers.exe dist/myservers.exe
+          Copy-Item app/target/x86_64-pc-windows-gnu/release/appnest.exe dist/appnest.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: myservers-windows
-          path: dist/myservers.exe
+          name: appnest-windows
+          path: dist/appnest.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.BUILD_TAG }}
           name: ${{ env.BUILD_TAG }}
-          files: dist/myservers.exe
+          files: dist/appnest.exe
           generate_release_notes: true

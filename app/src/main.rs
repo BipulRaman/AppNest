@@ -30,7 +30,7 @@ fn main() {
     let mi_open = MenuItem::new("Open Dashboard", true, None);
     let mi_start_all = MenuItem::new("Start All Apps", true, None);
     let mi_stop_all = MenuItem::new("Stop All Apps", true, None);
-    let mi_quit = MenuItem::new("Quit MyServers", true, None);
+    let mi_quit = MenuItem::new("Quit AppNest", true, None);
     menu.append_items(&[
         &mi_open,
         &PredefinedMenuItem::separator(),
@@ -44,7 +44,7 @@ fn main() {
     let icon = create_tray_icon();
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("MyServers — Local CI/CD")
+        .with_tooltip("AppNest — Local Dev Manager")
         .with_icon(icon)
         .build()
         .expect("Failed to create tray icon");

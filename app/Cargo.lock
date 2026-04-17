@@ -15,6 +15,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "appnest"
+version = "1.0.0"
+dependencies = [
+ "axum",
+ "mime_guess",
+ "open",
+ "rfd",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "tray-icon",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "ashpd"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1490,23 +1507,6 @@ dependencies = [
  "once_cell",
  "png",
  "thiserror",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "myservers"
-version = "1.0.0"
-dependencies = [
- "axum",
- "mime_guess",
- "open",
- "rfd",
- "rust-embed",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
- "tray-icon",
  "windows-sys 0.52.0",
 ]
 
