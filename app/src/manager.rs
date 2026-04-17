@@ -220,6 +220,11 @@ impl AppManager {
         }).collect()
     }
 
+    pub fn get_project_dir(&self, id: u32) -> Option<String> {
+        let state = self.state.lock().unwrap();
+        state.apps.get(&id).map(|a| a.entry.project_dir.clone())
+    }
+
     pub fn reorder_apps(&self, ids: Vec<u32>) -> Result<(), String> {
         let mut state = self.state.lock().unwrap();
         for (i, id) in ids.iter().enumerate() {

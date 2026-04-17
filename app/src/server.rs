@@ -32,6 +32,8 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/apps/:id/applogs/export", get(export_app_logs))
         .route("/api/pick-folder", get(pick_folder))
         .route("/api/pick-file", get(pick_file))
+        .route("/api/apps/:id/open-explorer", post(open_explorer))
+        .route("/api/apps/:id/open-terminal", post(open_terminal))
         .route("/api/logs", get(get_server_logs))
         .fallback(static_handler)
         .with_state(manager);
@@ -312,4 +314,82 @@ async fn pick_file(Query(q): Query<PickQ>) -> impl IntoResponse {
         d.pick_file().map(|p| p.to_string_lossy().to_string())
     }).await.unwrap_or(None);
     Json(PickResp { path })
+}
+
+// ─── Open path in system explorer / terminal ───────────────────────
+
+#[derive(Serialize)]
+struct OkResp { ok: bool, error: Option<String> }
+
+fn ok_resp() -> Json<OkResp> { Json(OkResp { ok: true, error: None }) }
+fn err_resp(msg: impl Into<String>) -> Json<OkResp> { Json(OkResp { ok: false, error: Some(msg.into()) }) }
+
+async fn open_explorer(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<u32>,
+) -> Json<OkResp> {
+    let Some(dir) = mgr.get_project_dir(id) else { return err_resp("App not found"); };
+    if !std::path::Path::new(&dir).exists() { return err_resp(format!("Path not found: {}", dir)); }
+    let result = tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            // Use ShellExecute via `cmd /C start` so the new Explorer window is brought to the foreground.
+            // The empty "" after start is the window title (required when the first arg is quoted).
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &dir])
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(target_os = "macos")]
+        { std::process::Command::new("open").arg(&dir).spawn().map(|_| ()).map_err(|e| e.to_string()) }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        { std::process::Command::new("xdg-open").arg(&dir).spawn().map(|_| ()).map_err(|e| e.to_string()) }
+    }).await.unwrap_or_else(|e| Err(e.to_string()));
+    match result { Ok(()) => ok_resp(), Err(e) => err_resp(e) }
+}
+
+async fn open_terminal(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<u32>,
+) -> Json<OkResp> {
+    let Some(dir) = mgr.get_project_dir(id) else { return err_resp("App not found"); };
+    if !std::path::Path::new(&dir).exists() { return err_resp(format!("Path not found: {}", dir)); }
+    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            // Prefer Windows Terminal if available, fall back to powershell
+            let wt = std::process::Command::new("wt")
+                .args(["-d", &dir])
+                .spawn();
+            if wt.is_ok() { return Ok(()); }
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "powershell", "-NoExit", "-Command", &format!("Set-Location -LiteralPath '{}'", dir.replace('\'', "''"))])
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .args(["-a", "Terminal", &dir])
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            // Try a few common terminals
+            for prog in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+                let mut cmd = std::process::Command::new(prog);
+                let spawned = match prog {
+                    "gnome-terminal" => cmd.args(["--working-directory", &dir]).spawn(),
+                    _ => cmd.args(["-e", &format!("bash -c 'cd \"{}\" && exec bash'", dir)]).spawn(),
+                };
+                if spawned.is_ok() { return Ok(()); }
+            }
+            Err("No terminal emulator found".into())
+        }
+    }).await.unwrap_or_else(|e| Err(e.to_string()));
+    match result { Ok(()) => ok_resp(), Err(e) => err_resp(e) }
 }

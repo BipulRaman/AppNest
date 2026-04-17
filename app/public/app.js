@@ -62,17 +62,18 @@ async function pickScript() {
 
 // ─── SVG Icons ──────────────────────────────────────
 const IC = {
-  play:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
-  stop:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
-  restart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
-  logs:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-  tail:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
-  ext:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
-  edit:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-  copy:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-  spinner: '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
-  trash:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
-  drag:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
+  play:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
+  stop:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  restart: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+  logs:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  tail:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
+  ext:     '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+  edit:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  spinner: '<svg aria-hidden="true" class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
+  folder:  '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  terminal:'<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="6 9 9 12 6 15"/><line x1="12" y1="15" x2="17" y2="15"/></svg>',
+  trash:   '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+  drag:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
 };
 
 // ─── Presets ────────────────────────────────────────
@@ -244,7 +245,7 @@ function renderRow(a) {
     : '';
 
   const tailBtn = (isUp || isBuild)
-    ? `<button class="act-btn ${expandedPreviews.has(a.id) ? 'is-active' : ''}" onclick="togglePreview(${a.id})" title="Quick log preview">${IC.tail}</button>`
+    ? `<button class="act-btn ${expandedPreviews.has(a.id) ? 'is-active' : ''}" onclick="togglePreview(${a.id})" title="Quick log preview" aria-label="Toggle quick log preview for ${esc(a.name)}" aria-expanded="${expandedPreviews.has(a.id)}">${IC.tail}</button>`
     : '';
 
   const uptime = isUp && a.uptimeSeconds != null ? formatUptime(a.uptimeSeconds) : '';
@@ -270,20 +271,21 @@ function renderRow(a) {
     </div>
     <div class="app-actions">
       ${!isUp && !isBuild ? (pendingStart.has(a.id) ? `
-        <button class="act-btn act-start is-pending" disabled>${IC.spinner || IC.play} Starting…</button>
+        <button class="act-btn act-start is-pending" disabled aria-label="Starting ${esc(a.name)}" aria-busy="true">${IC.spinner || IC.play} Starting…</button>
       ` : `
-        <button class="act-btn act-start" onclick="startApp(${a.id})">${IC.play} Start</button>
-        <button class="act-btn" onclick="startApp(${a.id},true)" title="Start without build">${IC.play}</button>
+        <button class="act-btn act-start" onclick="startApp(${a.id})" aria-label="Start ${esc(a.name)}">${IC.play} Start</button>
+        <button class="act-btn" onclick="startApp(${a.id},true)" title="Start without build" aria-label="Start ${esc(a.name)} without build">${IC.play}</button>
       `) : ''}
       ${isUp ? `
-        <button class="act-btn act-stop" onclick="stopApp(${a.id})">${IC.stop} Stop</button>
-        <button class="act-btn" onclick="restartApp(${a.id})" ${pendingStart.has(a.id) ? 'disabled' : ''}>${IC.restart}</button>
+        <button class="act-btn act-stop" onclick="stopApp(${a.id})" aria-label="Stop ${esc(a.name)}">${IC.stop} Stop</button>
+        <button class="act-btn" onclick="restartApp(${a.id})" ${pendingStart.has(a.id) ? 'disabled' : ''} title="Restart" aria-label="Restart ${esc(a.name)}">${IC.restart}</button>
       ` : ''}
       ${tailBtn}
-      <button class="act-btn" onclick="showLogs(${a.id},'${esc(a.name)}')">${IC.logs}</button>
-      <button class="act-btn" onclick="editApp(${a.id})" title="Edit">${IC.edit}</button>
-      <button class="act-btn" onclick="duplicateApp(${a.id})" title="Duplicate">${IC.copy}</button>
-      <button class="act-btn" onclick="deleteApp(${a.id})" title="Remove">${IC.trash}</button>
+      <button class="act-btn" onclick="showLogs(${a.id},'${esc(a.name)}')" title="View logs" aria-label="View logs for ${esc(a.name)}">${IC.logs}</button>
+      <button class="act-btn" onclick="openInExplorer(${a.id})" title="Open folder" aria-label="Open folder of ${esc(a.name)} in file explorer">${IC.folder}</button>
+      <button class="act-btn" onclick="openInTerminal(${a.id})" title="Open terminal here" aria-label="Open terminal in folder of ${esc(a.name)}">${IC.terminal}</button>
+      <button class="act-btn" onclick="editApp(${a.id})" title="Edit" aria-label="Edit ${esc(a.name)}">${IC.edit}</button>
+      <button class="act-btn" onclick="deleteApp(${a.id})" title="Remove" aria-label="Remove ${esc(a.name)}">${IC.trash}</button>
     </div>
   </div>
   <div class="log-preview" id="preview-${a.id}"><span class="empty">Loading…</span></div>
@@ -298,6 +300,18 @@ function copyPortUrl(e, port) {
     .then(() => toast('Copied URL: ' + url, 'success'))
     .catch(() => toast('Copy failed', 'error'));
   return false;
+}
+
+async function openInExplorer(id) {
+  const r = await api(`${API}/${id}/open-explorer`, 'POST');
+  if (r.ok) toast('Opened folder', 'success');
+  else toast(r.error || 'Failed to open folder', 'error');
+}
+
+async function openInTerminal(id) {
+  const r = await api(`${API}/${id}/open-terminal`, 'POST');
+  if (r.ok) toast('Opened terminal', 'success');
+  else toast(r.error || 'Failed to open terminal', 'error');
 }
 
 // ─── Search ----------------------------------------
@@ -535,31 +549,6 @@ async function editApp(id) {
   document.getElementById('modalTitle').textContent = 'Edit Application';
   document.getElementById('modal').classList.remove('hidden');
   $.name.focus();
-}
-
-async function duplicateApp(id) {
-  const apps = await api(API);
-  const a = apps.find(x => x.id === id);
-  if (!a) return;
-  // Pre-fill form but with empty id (creates a new one on save)
-  $.id.value = '';
-  $.name.value = a.name + ' (copy)';
-  $.dir.value = a.projectDir;
-  $.type.value = a.type;
-  $.port.value = a.port ? (a.port + 1) : '';
-  const buildLines = (a.buildSteps || []).slice();
-  if (a.runCommand) buildLines.push(a.runCommand);
-  $.build.value = buildLines.join('\n');
-  $.static.value = a.staticDir || '';
-  $.serve.value = a.scriptFile ? 'script' : a.staticDir ? 'static' : 'command';
-  $.script.value = a.scriptFile || '';
-  $.env.value = Object.entries(a.envVars || {}).map(([k, v]) => `${k}=${v}`).join('\n');
-  $.auto.checked = false; // don't auto-start duplicates
-  toggleServe();
-  document.getElementById('modalTitle').textContent = 'Duplicate Application';
-  document.getElementById('modal').classList.remove('hidden');
-  $.name.focus();
-  $.name.select();
 }
 
 function parseEnv(text) {
