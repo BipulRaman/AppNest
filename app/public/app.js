@@ -282,8 +282,6 @@ function renderRow(a) {
       ` : ''}
       ${tailBtn}
       <button class="act-btn" onclick="showLogs(${a.id},'${esc(a.name)}')" title="View logs" aria-label="View logs for ${esc(a.name)}">${IC.logs}</button>
-      <button class="act-btn" onclick="openInExplorer(${a.id})" title="Open folder" aria-label="Open folder of ${esc(a.name)} in file explorer">${IC.folder}</button>
-      <button class="act-btn" onclick="openInTerminal(${a.id})" title="Open terminal here" aria-label="Open terminal in folder of ${esc(a.name)}">${IC.terminal}</button>
       <button class="act-btn" onclick="editApp(${a.id})" title="Edit" aria-label="Edit ${esc(a.name)}">${IC.edit}</button>
       <button class="act-btn" onclick="deleteApp(${a.id})" title="Remove" aria-label="Remove ${esc(a.name)}">${IC.trash}</button>
     </div>
@@ -687,11 +685,12 @@ const ANSI_COLOR_MAP = {
 };
 function ansiToHtml(input) {
   // First remove non-SGR escapes (OSC, DCS, C1, etc.) and control chars
+  // Important: the \x0E-\x1F range would include ESC (\x1b); split it so ESC survives.
   const cleaned = String(input)
     .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
     .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
     .replace(/\x1b[=>]/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]/g, '');
 
   let html = '';
   let open = 0; // number of currently-open spans
@@ -895,6 +894,14 @@ document.getElementById('btnCopyLog').onclick = () => {
 
 document.getElementById('btnExportLog').onclick = () => {
   if (currentLogId) window.open(`${API}/${currentLogId}/applogs/export`, '_blank');
+};
+
+document.getElementById('btnOpenFolder').onclick = () => {
+  if (currentLogId) openInExplorer(currentLogId);
+};
+
+document.getElementById('btnOpenTerminal').onclick = () => {
+  if (currentLogId) openInTerminal(currentLogId);
 };
 
 // ─── Modal close helpers ────────────────────────────
