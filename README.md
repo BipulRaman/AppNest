@@ -310,6 +310,30 @@ AppNest' built-in static server uses HTTP. However, if your app itself runs HTTP
 VS multi-startup is IDE-specific and limited to projects within a single solution. AppNest is IDE-agnostic — it manages any project from any framework, and it runs in the background via the system tray even when no IDE is open. It's also useful for running frontend and backend projects that live in separate repos.
 </details>
 
+<details>
+<summary><strong>How is this different from .NET Aspire?</strong></summary>
+
+They solve overlapping problems from opposite ends:
+
+| | **.NET Aspire** | **AppNest** |
+|---|---|---|
+| **Primary audience** | .NET developers building distributed cloud apps | Any developer running a mix of local projects |
+| **Scope** | Orchestration framework + code model (`AppHost` project, C# DSL) | Standalone process manager with a web dashboard |
+| **Setup** | Add Aspire workload, create an `AppHost` project, wire services in C# | Download a 2 MB exe, point it at project folders |
+| **Language coupling** | .NET-centric; non-.NET apps integrated as "executables" or containers | Framework-agnostic by design (.NET, Node, React, Angular, Vue, Python, Go, …) |
+| **Runtime dependencies** | .NET SDK, Aspire workload, usually Docker Desktop for containers/dashboards | None — single native binary |
+| **Service discovery / config injection** | Built-in (connection strings, endpoints auto-wired between resources) | Not provided — apps use their own config, AppNest just starts processes |
+| **Telemetry dashboard** | Rich OpenTelemetry dashboard (traces, metrics, structured logs) | Live stdout/stderr log streaming with search and follow mode |
+| **Deployment story** | Can generate manifests for Azure Container Apps, Kubernetes, etc. | None — purely a local dev tool |
+| **Footprint** | Heavy: SDK + workload + Docker + dashboard container | ~2 MB exe, ~15 MB RAM |
+
+Use **Aspire** when you're building a .NET-first distributed system and want service discovery, OpenTelemetry, and a path to cloud deployment baked in.
+
+Use **AppNest** when you just want to start/stop/watch a handful of heterogeneous local projects from one place, without adopting a framework, installing Docker, or writing an orchestration project in C#.
+
+They can also coexist: run your Aspire `AppHost` as one entry in AppNest alongside unrelated Node/React/Python projects. Just add a new application in AppNest, point it at your `AppHost` project folder, pick the .NET preset (or set the run command to `dotnet run --project AppHost.csproj`), and flag it as **Auto-start** if you want Aspire to come up automatically with the rest of your stack.
+</details>
+
 ### Security
 
 <details>
