@@ -355,7 +355,7 @@ impl AppManager {
         }
     }
 
-    async fn run_build(&self, entry: &SavedApp) -> Result<(), String> {
+    async fn run_build(self: &Arc<Self>, entry: &SavedApp) -> Result<(), String> {
         if entry.build_steps.is_empty() {
             return Ok(());
         }
