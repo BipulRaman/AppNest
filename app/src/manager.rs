@@ -409,10 +409,13 @@ impl AppManager {
 
             if let Some(stdout) = child.stdout.take() {
                 let bl = build_logs.clone();
+                let mgr = Arc::clone(self);
+                let app_id = entry.id;
                 tokio::spawn(async move {
                     let mut reader = tokio::io::BufReader::new(stdout);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        mgr.append_log(app_id, &line);
                         bl.push(stamped(&line));
                         line.clear();
                     }
@@ -420,10 +423,13 @@ impl AppManager {
             }
             if let Some(stderr) = child.stderr.take() {
                 let bl = build_logs.clone();
+                let mgr = Arc::clone(self);
+                let app_id = entry.id;
                 tokio::spawn(async move {
                     let mut reader = tokio::io::BufReader::new(stderr);
                     let mut line = String::new();
                     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        mgr.append_log(app_id, &format!("[ERR] {}", &line));
                         bl.push(stamped(&line));
                         line.clear();
                     }
@@ -493,6 +499,8 @@ impl AppManager {
             let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
             let abs_str = abs_static.to_string_lossy().to_string();
             let logs_c = logs.clone();
+            let mgr_c = Arc::clone(self);
+            let app_id = id;
 
             self.rt_handle.spawn(async move {
                 use tower_http::services::{ServeDir, ServeFile};
@@ -502,16 +510,20 @@ impl AppManager {
                     .fallback(ServeFile::new(index));
                 let app = axum::Router::new().fallback_service(serve);
 
-                logs_c.push(stamped(&format!(
+                let start_msg = format!(
                     "Static server at http://localhost:{}  Serving: {}", port, abs_str
-                )));
+                );
+                mgr_c.append_log(app_id, &start_msg);
+                logs_c.push(stamped(&start_msg));
 
                 if let Ok(listener) = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
                     axum::serve(listener, app)
                         .with_graceful_shutdown(async { let _ = shutdown_rx.await; })
                         .await.ok();
                 } else {
-                    logs_c.push(stamped(&format!("Failed to bind port {}", port)));
+                    let fail_msg = format!("Failed to bind port {}", port);
+                    mgr_c.append_log(app_id, &fail_msg);
+                    logs_c.push(stamped(&fail_msg));
                 }
             });
 
@@ -803,8 +815,22 @@ impl AppManager {
     pub fn append_log(&self, id: u32, line: &str) {
         use std::io::Write;
         let name = self.app_log_name(id);
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(self.log_file_path_for(&name)) {
-            let _ = writeln!(f, "[{}] {}", local_timestamp(), line.trim_end());
+        let path = self.log_file_path_for(&name);
+        // On Windows, concurrent open-for-append from many tasks can
+        // intermittently fail with a sharing violation. Retry a few times
+        // before dropping the line so persisted logs don't lose entries.
+        for attempt in 0..5u32 {
+            match fs::OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(mut f) => {
+                    let _ = writeln!(f, "[{}] {}", local_timestamp(), line.trim_end());
+                    let _ = f.flush();
+                    return;
+                }
+                Err(_) if attempt < 4 => {
+                    std::thread::sleep(std::time::Duration::from_millis(2 << attempt));
+                }
+                Err(_) => return,
+            }
         }
     }
 
