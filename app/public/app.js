@@ -1,5 +1,5 @@
 const API = '/api/apps';
-let pollTimer = null, currentLogId = null;
+let pollTimer = null, currentLogId = null, currentLogTab = 'run';
 let searchQuery = '';
 let statusFilter = 'all'; // 'all' | 'running' | 'stopped'
 const expandedPreviews = new Set(); // ids whose inline preview is open
@@ -604,6 +604,7 @@ let followMode = true;
 
 async function showLogs(id, name) {
   currentLogId = id;
+  currentLogTab = 'run';
   runBuf = '';
   buildBuf = '';
   logSearchQuery = '';
@@ -613,6 +614,7 @@ async function showLogs(id, name) {
   updateFollowPill();
   document.getElementById('logTitle').textContent = name;
   document.getElementById('logModal').classList.remove('hidden');
+  updateTabs();
   document.getElementById('logContent').innerHTML = '<span class="log-debug">(connecting…)</span>';
   openLogStream(id);
 }
@@ -638,7 +640,7 @@ function openLogStream(id) {
         // Cap buffer size in browser too
         if (runBuf.length > 500_000) runBuf = runBuf.slice(-400_000);
         if (buildBuf.length > 500_000) buildBuf = buildBuf.slice(-400_000);
-        renderStreamedLogs();
+        if (currentLogTab === 'run') renderStreamedLogs();
       } catch (e) {}
     });
     es.onerror = () => {
@@ -655,7 +657,7 @@ function closeLogStream() {
 }
 
 // Legacy polling kept for applog tab + fallback
-function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 2000); }
+function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 1000); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 function classifyLine(raw) {
@@ -806,10 +808,16 @@ function renderStreamedLogs() {
 async function refreshLogs() {
   if (!currentLogId) return;
   const $el = document.getElementById('logContent');
-  const d = await api(`${API}/${currentLogId}/logs`);
-  const buildPart = d.buildLogs || '';
-  const runPart = d.logs || '';
-  const raw = (buildPart + runPart) || '(waiting for output…)';
+  let raw;
+  if (currentLogTab === 'applog') {
+    const d = await api(`${API}/${currentLogId}/applogs`);
+    raw = d.log || '(empty)';
+  } else {
+    const d = await api(`${API}/${currentLogId}/logs`);
+    const buildPart = d.buildLogs || '';
+    const runPart = d.logs || '';
+    raw = (buildPart + runPart) || '(waiting for output…)';
+  }
   const filtered = applyLogFilter(raw);
   $el.innerHTML = linkifyUrls(filtered);
   highlightMatches($el, logSearchQuery);
@@ -842,17 +850,32 @@ function updateFollowPill() {
   const $search = document.getElementById('logSearchInput');
   if ($search) $search.addEventListener('input', e => {
     logSearchQuery = e.target.value;
-    renderStreamedLogs();
+    if (currentLogTab === 'applog') refreshLogs();
+    else renderStreamedLogs();
   });
 })();
 
 document.querySelectorAll('.tab-bar .tab').forEach(b => {
   b.onclick = () => {
-    // Tabs removed: nothing to switch.
+    currentLogTab = b.dataset.tab;
+    updateTabs();
+    if (currentLogTab === 'applog') {
+      // Persisted log is file-backed (history + current); poll for updates
+      stopPoll();
+      refreshLogs();
+      startPoll();
+    } else {
+      stopPoll();
+      renderStreamedLogs();
+    }
   };
 });
 
-function updateTabs() {}
+function updateTabs() {
+  document.querySelectorAll('.tab-bar .tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === currentLogTab)
+  );
+}
 
 document.getElementById('btnCloseLogs').onclick = () => {
   closeModal('logModal');
