@@ -10,6 +10,93 @@ use tokio::runtime::Handle;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+// ─── Windows Job Object helper ──────────────────────────────────────
+//
+// On Windows, `child.wait()` only tracks the *direct* child we spawned.
+// For shell-based run commands (powershell -> cmd -> npm -> node -> ...),
+// the direct child often exits while its descendants keep running, which
+// made AppNest mark apps "Stopped" while dev servers were still alive.
+//
+// Fix: assign each spawned run process to a Job Object with
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. All descendants automatically inherit
+// the job, so we can:
+//   * use `active_processes()` as the real liveness signal, and
+//   * use `terminate()` on Stop to kill the whole tree atomically.
+#[cfg(windows)]
+mod winjob {
+    use std::sync::Arc;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+        TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    pub struct Job(HANDLE);
+
+    // HANDLE is a raw pointer; the OS object behind it is safe to share
+    // across threads — only one thread closes it (Drop).
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+
+    impl Job {
+        pub fn create() -> Option<Arc<Job>> {
+            unsafe {
+                let h = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if h == 0 {
+                    return None;
+                }
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let _ = SetInformationJobObject(
+                    h,
+                    JobObjectExtendedLimitInformation,
+                    &info as *const _ as *const _,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                Some(Arc::new(Job(h)))
+            }
+        }
+
+        pub fn assign(&self, process: HANDLE) -> bool {
+            unsafe { AssignProcessToJobObject(self.0, process) != 0 }
+        }
+
+        pub fn active_processes(&self) -> u32 {
+            unsafe {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                let mut returned: u32 = 0;
+                if QueryInformationJobObject(
+                    self.0,
+                    JobObjectBasicAccountingInformation,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                    &mut returned,
+                ) == 0
+                {
+                    return 0;
+                }
+                info.ActiveProcesses
+            }
+        }
+
+        pub fn terminate(&self) {
+            unsafe {
+                TerminateJobObject(self.0, 1);
+            }
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
 // ─── Persisted App Config (replaces YAML) ───────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +184,11 @@ struct AppRuntime {
     build_logs: LogSink,
     log_tx: tokio::sync::broadcast::Sender<LogLine>,
     started_at: Option<u64>, // unix seconds when entered "running"
+    /// Windows Job Object the run process and all its descendants belong to.
+    /// Used both for liveness tracking (active_processes) and for atomic
+    /// tree-kill on Stop. None on non-Windows or before a run starts.
+    #[cfg(windows)]
+    job: Option<Arc<winjob::Job>>,
 }
 
 struct ManagerState {
@@ -189,6 +281,8 @@ impl AppManager {
                             build_logs: LogSink::new(log_tx.clone(), "build"),
                             log_tx,
                             started_at: None,
+                            #[cfg(windows)]
+                            job: None,
                         }
                     });
                 }
@@ -267,6 +361,8 @@ impl AppManager {
                 build_logs: LogSink::new(log_tx.clone(), "build"),
                 log_tx,
                 started_at: None,
+                #[cfg(windows)]
+                job: None,
             }
         });
         drop(state);
@@ -597,6 +693,22 @@ impl AppManager {
             let mut child = cmd.spawn().map_err(|e| e.to_string())?;
             let pid = child.id().unwrap_or(0);
 
+            // On Windows, put the script process into a Job Object so its
+            // entire descendant tree (cmd -> npm -> node -> ...) becomes
+            // observable as a single unit. Liveness comes from the job's
+            // active-process count, not from the direct child's exit code.
+            #[cfg(windows)]
+            let job = {
+                let j = winjob::Job::create();
+                if let Some(jref) = &j {
+                    let h = child.raw_handle();
+                    if let Some(h) = h {
+                        jref.assign(h as windows_sys::Win32::Foundation::HANDLE);
+                    }
+                }
+                j
+            };
+
             if let Some(stdout) = child.stdout.take() {
                 let l = logs.clone();
                 let mgr = Arc::clone(self);
@@ -627,8 +739,21 @@ impl AppManager {
             let mgr = Arc::clone(self);
             let logs_exit = logs.clone();
             let app_name = entry.name.clone();
+            #[cfg(windows)]
+            let job_for_exit = job.clone();
             tokio::spawn(async move {
                 let result = child.wait().await;
+                // On Windows the direct child can exit while descendants
+                // (node, webpack-dev-server, ...) are still alive in the
+                // job. Wait until the job is empty before flipping status.
+                #[cfg(windows)]
+                {
+                    if let Some(j) = &job_for_exit {
+                        while j.active_processes() > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                    }
+                }
                 let msg = match result {
                     Ok(s) => format!("Script exited with code {}", s),
                     Err(e) => format!("Script error: {}", e),
@@ -641,6 +766,8 @@ impl AppManager {
                     app.status = "stopped".into();
                     app.pid = None;
                     app.started_at = None;
+                    #[cfg(windows)]
+                    { app.job = None; }
                 }
             });
 
@@ -649,6 +776,8 @@ impl AppManager {
                 app.status = "running".into();
                 app.pid = Some(pid);
                 app.started_at = Some(now_secs());
+                #[cfg(windows)]
+                { app.job = job; }
             }
             self.log_server(&format!("Started script: {} (id={}, pid={})", entry.name, id, pid));
             return Ok(());
@@ -678,6 +807,20 @@ impl AppManager {
 
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
         let pid = child.id().unwrap_or(0);
+
+        // See script-mode comment above — same Job Object treatment for
+        // command-mode runs so descendants are tracked atomically.
+        #[cfg(windows)]
+        let job = {
+            let j = winjob::Job::create();
+            if let Some(jref) = &j {
+                let h = child.raw_handle();
+                if let Some(h) = h {
+                    jref.assign(h as windows_sys::Win32::Foundation::HANDLE);
+                }
+            }
+            j
+        };
 
         if let Some(stdout) = child.stdout.take() {
             let l = logs.clone();
@@ -710,8 +853,18 @@ impl AppManager {
         let mgr = Arc::clone(self);
         let logs_exit = logs.clone();
         let app_name = entry.name.clone();
+        #[cfg(windows)]
+        let job_for_exit = job.clone();
         tokio::spawn(async move {
             let result = child.wait().await;
+            #[cfg(windows)]
+            {
+                if let Some(j) = &job_for_exit {
+                    while j.active_processes() > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+            }
             let msg = match result {
                 Ok(s) => format!("Process exited with code {}", s),
                 Err(e) => format!("Process error: {}", e),
@@ -724,6 +877,8 @@ impl AppManager {
                 app.status = "stopped".into();
                 app.pid = None;
                 app.started_at = None;
+                #[cfg(windows)]
+                { app.job = None; }
             }
         });
 
@@ -732,6 +887,8 @@ impl AppManager {
             app.status = "running".into();
             app.pid = Some(pid);
             app.started_at = Some(now_secs());
+            #[cfg(windows)]
+            { app.job = job; }
         }
         self.log_server(&format!("Started: {} (id={}, pid={})", entry.name, id, pid));
         Ok(())
@@ -1016,6 +1173,16 @@ fn stop_runtime(app: &mut AppRuntime) {
     // Kill the run process (if running) AND the in-flight build step (if
     // building). They're distinct PIDs; a Stop click while "Starting…"
     // needs to tear down whichever one is currently alive.
+    //
+    // On Windows we prefer terminating the Job Object — that atomically
+    // kills the entire descendant tree (cmd → npm → node → webpack-dev-server)
+    // in one syscall, which `taskkill /T /F` can race against on long chains.
+    #[cfg(windows)]
+    {
+        if let Some(job) = app.job.take() {
+            job.terminate();
+        }
+    }
     if let Some(pid) = app.pid.take() {
         kill_tree(pid);
     }
