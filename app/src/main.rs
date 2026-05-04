@@ -14,6 +14,11 @@ fn main() {
     let manager = Arc::new(AppManager::new(rt_handle.clone()));
     manager.load();
 
+    // Pre-warm `npm prefix -g` on a background thread so the first start_app
+    // call doesn't have to block the tokio executor on a synchronous npm
+    // shell-out (it can take 100–500 ms cold).
+    manager::prewarm_npm_prefix();
+
     let mgr = manager.clone();
     std::thread::spawn(move || {
         rt.block_on(server::run(mgr));

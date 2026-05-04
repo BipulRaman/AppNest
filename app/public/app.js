@@ -27,14 +27,71 @@ function loadUiState() {
 }
 
 // ─── Utilities ──────────────────────────────────────
+// Lightweight cross-tab/origin guard: every mutating request includes a
+// custom header that triggers a CORS preflight in any non-same-origin
+// caller. This neutralises drive-by `fetch('http://127.0.0.1:1234/...')`
+// requests from arbitrary websites the user happens to be browsing.
+const APPNEST_HEADERS = { 'Content-Type': 'application/json', 'X-Requested-With': 'AppNest' };
+
 async function api(url, method = 'GET', body) {
-  const o = { method, headers: { 'Content-Type': 'application/json' } };
+  const o = { method, headers: { ...APPNEST_HEADERS } };
   if (body) o.body = JSON.stringify(body);
-  return (await fetch(url, o)).json();
+  // Always throw on failure so callers get a single uniform error path.
+  // Returning {error: ...} on failure was too easy to forget at call sites,
+  // and produced cascading TypeErrors when the response shape was an array.
+  let resp;
+  try { resp = await fetch(url, o); }
+  catch (e) { throw new Error((e && e.message) || String(e)); }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    let parsed;
+    try { parsed = await resp.json(); }
+    catch { throw new Error(`Invalid JSON from server (HTTP ${resp.status})`); }
+    if (!resp.ok) {
+      throw new Error((parsed && parsed.error) || `HTTP ${resp.status}`);
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) {
+      // Some endpoints return 200 with {error:...} — treat as failure.
+      throw new Error(parsed.error);
+    }
+    return parsed;
+  }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text ? `${resp.status}: ${text.slice(0, 200)}` : `HTTP ${resp.status}`);
+  }
+  return null;
 }
 
 function esc(s) {
-  return s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
+  // Escapes for HTML text and double-quoted attribute contexts.
+  // Also escapes ' so the string can safely live inside single-quoted attrs
+  // and inside single-quoted JS strings embedded in attribute handlers
+  // (e.g. onclick="showLogs(1, '${esc(name)}')").
+  return s ? String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    : '';
+}
+
+// Escape a string for use as a single-quoted JavaScript literal embedded
+// inside an HTML attribute value. We HTML-encode after JS-encoding so the
+// resulting attribute is safe for both layers (HTML parser then JS parser).
+function jsStr(s) {
+  if (s == null) return '';
+  const js = String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
+  return js
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
 }
 
 function toast(msg, type = 'info') {
@@ -51,13 +108,21 @@ function closeModal(id) {
 }
 
 async function pickFolder(inputId) {
-  const r = await api('/api/pick-folder');
-  if (r.path) document.getElementById(inputId).value = r.path;
+  try {
+    const r = await api('/api/pick-folder');
+    if (r && r.path) document.getElementById(inputId).value = r.path;
+  } catch (e) {
+    toast('Folder picker failed: ' + e.message, 'error');
+  }
 }
 
 async function pickScript() {
-  const r = await api('/api/pick-file?ext=script');
-  if (r.path) document.getElementById('fScript').value = r.path;
+  try {
+    const r = await api('/api/pick-file?ext=script');
+    if (r && r.path) document.getElementById('fScript').value = r.path;
+  } catch (e) {
+    toast('File picker failed: ' + e.message, 'error');
+  }
 }
 
 // ─── SVG Icons ──────────────────────────────────────
@@ -97,7 +162,25 @@ async function loadPresets() {
 const $list = document.getElementById('appList');
 
 async function loadApps() {
-  const apps = await api(API);
+  let apps;
+  try {
+    apps = await api(API);
+  } catch (e) {
+    // api() now throws on errors. Don't crash the polling loop — just
+    // surface a one-off toast on the first failure and try again next tick.
+    if (!loadApps._errored) {
+      loadApps._errored = true;
+      toast('Failed to load apps: ' + (e.message || e), 'error');
+      // Reset the error flag after a few seconds so transient blips re-toast.
+      setTimeout(() => { loadApps._errored = false; }, 10000);
+    }
+    return;
+  }
+  if (!Array.isArray(apps)) {
+    // The server should only ever return an array here; if not, treat the
+    // tick as a no-op rather than crashing all subsequent code paths.
+    return;
+  }
 
   // Clear "pending start" flags once backend confirms the transition
   if (pendingStart.size) {
@@ -108,7 +191,9 @@ async function loadApps() {
     }
   }
 
-  const running = apps.filter(a => a.status === 'running').length;
+  // Chip counts include building apps under Running so the chip badge
+  // matches the data-status filter (which also groups building → running).
+  const running = apps.filter(a => a.status === 'running' || a.building).length;
   document.getElementById('statRunning').textContent = running;
   document.getElementById('statStopped').textContent = apps.length - running;
   const $all = document.getElementById('statAll');
@@ -120,6 +205,11 @@ async function loadApps() {
         <h3>No applications yet</h3>
         <p>Click "New Application" to add your first project.</p>
       </div>`;
+    // Nothing to preview when the list is empty — stop the polling timer.
+    if (expandedPreviews.size) {
+      expandedPreviews.clear();
+      updatePreviewPolling();
+    }
     return;
   }
 
@@ -176,8 +266,16 @@ async function loadApps() {
   }
   // Remove rows that no longer exist
   for (const [id, node] of existing) {
-    if (!seen.has(id)) node.remove();
+    if (!seen.has(id)) {
+      node.remove();
+      // If a deleted app had its preview open, drop it from the polling
+      // set so we stop hammering /logs for an id that no longer exists.
+      if (expandedPreviews.has(id)) {
+        expandedPreviews.delete(id);
+      }
+    }
   }
+  updatePreviewPolling();
 
   applySearchFilter();
   initDragAndDrop();
@@ -252,7 +350,7 @@ function renderRow(a) {
 
   return `
   <div class="${wrapClass}" data-wrap-id="${a.id}">
-  <div class="app-row ${rowClass}" draggable="true" data-id="${a.id}" data-status="${isUp ? 'running' : 'stopped'}" data-name="${esc(a.name).toLowerCase()}" data-type="${esc(a.type).toLowerCase()}" data-dir="${esc(a.projectDir).toLowerCase()}">
+  <div class="app-row ${rowClass}" draggable="true" data-id="${a.id}" data-status="${(isUp || isBuild) ? 'running' : 'stopped'}" data-name="${esc((a.name || '').toLowerCase())}" data-type="${esc((a.type || '').toLowerCase())}" data-dir="${esc((a.projectDir || '').toLowerCase())}">
     <div class="drag-handle" title="Drag to reorder">${IC.drag}</div>
     <div class="status-dot ${st}"></div>
     <div class="app-info">
@@ -271,7 +369,7 @@ function renderRow(a) {
     </div>
     <div class="app-actions">
       ${!isUp && !isBuild ? (pendingStart.has(a.id) ? `
-        <button class="act-btn act-start is-pending" disabled aria-label="Starting ${esc(a.name)}" aria-busy="true">${IC.spinner || IC.play} Starting…</button>
+        <button class="act-btn act-start is-pending" disabled aria-label="Starting ${esc(a.name)}" aria-busy="true">${IC.spinner} Starting…</button>
       ` : `
         <button class="act-btn act-start" onclick="startApp(${a.id})" aria-label="Start ${esc(a.name)}">${IC.play} Start</button>
         <button class="act-btn" onclick="startApp(${a.id},true)" title="Start without build" aria-label="Start ${esc(a.name)} without build">${IC.play}</button>
@@ -284,7 +382,7 @@ function renderRow(a) {
         <button class="act-btn" onclick="restartApp(${a.id})" ${pendingStart.has(a.id) ? 'disabled' : ''} title="Restart" aria-label="Restart ${esc(a.name)}">${IC.restart}</button>
       ` : ''}
       ${tailBtn}
-      <button class="act-btn" onclick="showLogs(${a.id},'${esc(a.name)}')" title="View logs" aria-label="View logs for ${esc(a.name)}">${IC.logs}</button>
+      <button class="act-btn" onclick="showLogs(${a.id},'${jsStr(a.name)}')" title="View logs" aria-label="View logs for ${esc(a.name)}">${IC.logs}</button>
       <button class="act-btn" onclick="editApp(${a.id})" title="Edit" aria-label="Edit ${esc(a.name)}">${IC.edit}</button>
       <button class="act-btn" onclick="deleteApp(${a.id})" title="Remove" aria-label="Remove ${esc(a.name)}">${IC.trash}</button>
     </div>
@@ -304,15 +402,23 @@ function copyPortUrl(e, port) {
 }
 
 async function openInExplorer(id) {
-  const r = await api(`${API}/${id}/open-explorer`, 'POST');
-  if (r.ok) toast('Opened folder', 'success');
-  else toast(r.error || 'Failed to open folder', 'error');
+  try {
+    const r = await api(`${API}/${id}/open-explorer`, 'POST');
+    if (r && r.ok) toast('Opened folder', 'success');
+    else toast((r && r.error) || 'Failed to open folder', 'error');
+  } catch (e) {
+    toast(e.message || 'Failed to open folder', 'error');
+  }
 }
 
 async function openInTerminal(id) {
-  const r = await api(`${API}/${id}/open-terminal`, 'POST');
-  if (r.ok) toast('Opened terminal', 'success');
-  else toast(r.error || 'Failed to open terminal', 'error');
+  try {
+    const r = await api(`${API}/${id}/open-terminal`, 'POST');
+    if (r && r.ok) toast('Opened terminal', 'success');
+    else toast((r && r.error) || 'Failed to open terminal', 'error');
+  } catch (e) {
+    toast(e.message || 'Failed to open terminal', 'error');
+  }
 }
 
 // ─── Search ----------------------------------------
@@ -397,8 +503,19 @@ function handleDragEnd() {
 
 async function saveOrder() {
   const ids = [...$list.querySelectorAll('.app-row')].map(r => +r.dataset.id);
-  const r = await api(`${API}/reorder`, 'POST', { ids });
-  if (r.error) toast(r.error, 'error');
+  // Pause the 3s app-list poll while we save — otherwise the next poll can
+  // fire mid-request and rebuild the list with the OLD server-side order,
+  // momentarily flicking rows back to where the user just dragged them away
+  // from. Restart polling once the save resolves so live status keeps
+  // refreshing.
+  stopAppsPoll();
+  try {
+    await api(`${API}/reorder`, 'POST', { ids });
+  } catch (e) {
+    toast(e.message || 'Reorder failed', 'error');
+  } finally {
+    startAppsPoll();
+  }
 }
 
 // ─── Actions ────────────────────────────────────────
@@ -407,28 +524,29 @@ async function startApp(id, skip) {
   pendingStart.add(id);
   // Re-render the affected row right away so the button flips to "Starting…"
   updateRowPendingUI(id);
-  // Safety net: clear pending after 20s if backend never transitions
+  // Safety net: clear pending after 5 minutes if backend never transitions.
+  // 20s was too short — a cold `npm install` routinely takes longer and
+  // the button would silently revert mid-build.
   setTimeout(() => {
     if (pendingStart.has(id)) { pendingStart.delete(id); loadApps(); }
-  }, 20000);
+  }, 5 * 60 * 1000);
   try {
-    const r = await api(`${API}/${id}/start${skip ? '?skipBuild=true' : ''}`, 'POST');
-    if (r.error) {
-      pendingStart.delete(id);
-      toast(r.error, 'error');
-    } else {
-      toast('Starting…', 'success');
-    }
+    await api(`${API}/${id}/start${skip ? '?skipBuild=true' : ''}`, 'POST');
+    toast('Starting…', 'success');
   } catch (e) {
     pendingStart.delete(id);
-    toast(String(e), 'error');
+    toast(e.message || 'Start failed', 'error');
   }
   loadApps();
 }
 
 async function stopApp(id) {
-  const r = await api(`${API}/${id}/stop`, 'POST');
-  r.error ? toast(r.error, 'error') : toast('Stopped', 'success');
+  try {
+    await api(`${API}/${id}/stop`, 'POST');
+    toast('Stopped', 'success');
+  } catch (e) {
+    toast(e.message || 'Stop failed', 'error');
+  }
   loadApps();
 }
 
@@ -438,18 +556,13 @@ async function restartApp(id) {
   updateRowPendingUI(id);
   setTimeout(() => {
     if (pendingStart.has(id)) { pendingStart.delete(id); loadApps(); }
-  }, 20000);
+  }, 5 * 60 * 1000);
   try {
-    const r = await api(`${API}/${id}/restart`, 'POST');
-    if (r.error) {
-      pendingStart.delete(id);
-      toast(r.error, 'error');
-    } else {
-      toast('Restarting…', 'success');
-    }
+    await api(`${API}/${id}/restart`, 'POST');
+    toast('Restarting…', 'success');
   } catch (e) {
     pendingStart.delete(id);
-    toast(String(e), 'error');
+    toast(e.message || 'Restart failed', 'error');
   }
   loadApps();
 }
@@ -464,7 +577,7 @@ function updateRowPendingUI(id) {
   const startBtn = wrap.querySelector('.act-start');
   if (startBtn) {
     startBtn.classList.add('is-pending');
-    startBtn.innerHTML = (IC.spinner || IC.play) + ' Starting…';
+    startBtn.innerHTML = IC.spinner + ' Starting…';
   }
   // Invalidate cached signature so the next diff will fully re-render
   wrap.dataset.sig = '';
@@ -479,11 +592,10 @@ async function deleteApp(id) {
   });
   if (!ok) return;
   try {
-    const r = await fetch(`${API}/${id}`, { method: 'DELETE' });
-    const d = await r.json();
-    d.error ? toast(d.error, 'error') : toast('Removed', 'success');
+    await api(`${API}/${id}`, 'DELETE');
+    toast('Removed', 'success');
   } catch (e) {
-    toast('Failed: ' + e.message, 'error');
+    toast('Failed: ' + (e.message || e), 'error');
   }
   loadApps();
 }
@@ -530,7 +642,10 @@ document.getElementById('btnAdd').onclick = () => {
 };
 
 async function editApp(id) {
-  const apps = await api(API);
+  let apps;
+  try { apps = await api(API); }
+  catch (e) { toast('Failed to load app: ' + e.message, 'error'); return; }
+  if (!Array.isArray(apps)) return;
   const a = apps.find(x => x.id === id);
   if (!a) return;
   $.id.value = a.id;
@@ -575,6 +690,17 @@ $form.onsubmit = async (e) => {
     buildSteps = allLines;
     runCommand = null;
   }
+  // Validate port range client-side so the user gets a friendly message
+  // instead of a generic 400 from serde rejecting an out-of-range u16.
+  let port = null;
+  if ($.port.value) {
+    const n = +$.port.value;
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+      toast('Port must be an integer between 1 and 65535', 'error');
+      return;
+    }
+    port = n;
+  }
   const payload = {
     name: $.name.value.trim(),
     projectDir: $.dir.value.trim(),
@@ -583,14 +709,20 @@ $form.onsubmit = async (e) => {
     runCommand: runCommand,
     staticDir: mode === 'static' ? ($.static.value.trim() || null) : null,
     scriptFile: mode === 'script' ? ($.script.value.trim() || null) : null,
-    port: $.port.value ? +$.port.value : null,
+    port: port,
     envVars: parseEnv($.env.value),
     autoStart: $.auto.checked,
   };
-  const r = $.id.value
-    ? await api(`${API}/${$.id.value}`, 'PUT', payload)
-    : await api(API, 'POST', payload);
-  if (r.error) { toast(r.error, 'error'); return; }
+  try {
+    if ($.id.value) {
+      await api(`${API}/${$.id.value}`, 'PUT', payload);
+    } else {
+      await api(API, 'POST', payload);
+    }
+  } catch (err) {
+    toast(err.message || 'Save failed', 'error');
+    return;
+  }
   toast($.id.value ? 'Updated' : 'Added', 'success');
   closeModal('modal');
   loadApps();
@@ -643,6 +775,14 @@ function openLogStream(id) {
         if (currentLogTab === 'run') renderStreamedLogs();
       } catch (e) {}
     });
+    // Server explicitly tells us the app is gone — close the stream
+    // ourselves so EventSource doesn't keep auto-reconnecting against
+    // an id that will return 400 forever.
+    es.addEventListener('deleted', () => {
+      closeLogStream();
+      runBuf += '\n[App was removed]\n';
+      if (currentLogTab === 'run') renderStreamedLogs();
+    });
     es.onerror = () => {
       // Browser auto-reconnects; if the server has closed, just leave the stream.
     };
@@ -656,8 +796,10 @@ function closeLogStream() {
   if (logStream) { logStream.close(); logStream = null; }
 }
 
-// Legacy polling kept for applog tab + fallback
-function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 1000); }
+// Legacy polling kept for applog tab + fallback. The persisted log file is
+// only appended to by build/run output, so 3s is plenty — 1s was overkill
+// and produced needless API churn while the log modal sat open.
+function startPoll() { stopPoll(); pollTimer = setInterval(refreshLogs, 3000); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 function classifyLine(raw) {
@@ -731,21 +873,32 @@ function linkifyUrls(text) {
   // Convert ANSI first to get HTML with colored spans + escaped text;
   // then process line-by-line to add per-line classification, URL links, timestamp styling.
   const ansiHtml = ansiToHtml(text);
-  const urlRe = /(https?:\/\/[^\s<]+)/;
   return ansiHtml.split('\n').map(line => {
     const plain = line.replace(/<[^>]*>/g, ''); // for classification only
     const cls = classifyLine(plain);
     let h = line.replace(/(https?:\/\/[^\s<]+)/g, (u) => {
-      const safe = u.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-      return `<a class="log-url" href="${safe}" target="_blank" rel="noopener">${u}</a>`;
+      // `u` is HTML-escaped because ansiToHtml already ran esc(). We need
+      // both a clean href (with real `&`) and a clean displayed link text
+      // so the user doesn't see literal "&amp;" in the URL.
+      // Trim trailing punctuation that's almost certainly NOT part of the
+      // URL (a sentence-final "." / "," / ")" / "]" / ";" / ":"). The
+      // trimmed characters are appended to the post-link text below so
+      // the visual line stays identical.
+      const trail = u.match(/[.,)\]:;!?]+$/);
+      const core = trail ? u.slice(0, -trail[0].length) : u;
+      const tail = trail ? trail[0] : '';
+      const display = core.replace(/&amp;/g, '&');
+      const href = display.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      return `<a class="log-url" href="${href}" target="_blank" rel="noopener">${display}</a>${tail}`;
     });
     h = h.replace(/(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/g, '<span class="log-ts">$1</span>');
     return cls ? `<span class="${cls}">${h}</span>` : h;
   }).join('\n');
 }
 
-function getBufFor(tab) {
-  // Build + runtime are merged into a single 'run' view.
+function getBufFor(_tab) {
+  // Build + runtime are merged into a single 'run' view. The tab arg is
+  // kept in the signature for future tab-specific buffers.
   const parts = [];
   if (buildBuf) parts.push(buildBuf);
   if (runBuf) parts.push(runBuf);
@@ -809,14 +962,31 @@ async function refreshLogs() {
   if (!currentLogId) return;
   const $el = document.getElementById('logContent');
   let raw;
-  if (currentLogTab === 'applog') {
-    const d = await api(`${API}/${currentLogId}/applogs`);
-    raw = d.log || '(empty)';
-  } else {
-    const d = await api(`${API}/${currentLogId}/logs`);
-    const buildPart = d.buildLogs || '';
-    const runPart = d.logs || '';
-    raw = (buildPart + runPart) || '(waiting for output…)';
+  try {
+    if (currentLogTab === 'applog') {
+      const d = await api(`${API}/${currentLogId}/applogs`);
+      raw = (d && d.log) || '(empty)';
+    } else {
+      const d = await api(`${API}/${currentLogId}/logs`);
+      const buildPart = (d && d.buildLogs) || '';
+      const runPart = (d && d.logs) || '';
+      raw = (buildPart + runPart) || '(waiting for output…)';
+    }
+  } catch (e) {
+    // If the backend says the app is gone, stop polling against an id
+    // that will return 4xx forever. The SSE side has its own `deleted`
+    // event for the live tab; this covers the persisted-log polling path.
+    const msg = (e && e.message) || '';
+    if (/app not found/i.test(msg) || /\b404\b/.test(msg)) {
+      stopPoll();
+      $el.innerHTML = '<span class="log-debug">(app was removed)</span>';
+      currentLogId = null;
+      return;
+    }
+    // Other errors: surface inline, keep polling so a transient blip
+    // self-recovers on the next tick.
+    $el.innerHTML = `<span class="log-err">(log fetch failed: ${esc(msg)})</span>`;
+    return;
   }
   const filtered = applyLogFilter(raw);
   $el.innerHTML = linkifyUrls(filtered);
@@ -929,9 +1099,28 @@ document.addEventListener('keydown', e => {
 
 // ─── Auto-refresh ───────────────────────────────────
 loadUiState();
+let appsPollTimer = null;
+function startAppsPoll() {
+  if (appsPollTimer) return;
+  appsPollTimer = setInterval(loadApps, 3000);
+}
+function stopAppsPoll() {
+  if (appsPollTimer) { clearInterval(appsPollTimer); appsPollTimer = null; }
+}
 loadPresets().then(() => {
-  setInterval(loadApps, 3000);
+  startAppsPoll();
   loadApps();
+});
+// Pause the 3s app-list poll while the tab is hidden — there's no point
+// hammering the API when no one's looking. Resume + immediately refresh
+// when the tab comes back so the dashboard never shows stale state.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopAppsPoll();
+  } else {
+    loadApps();
+    startAppsPoll();
+  }
 });
 
 // ─── Update check ───────────────────────────────────
@@ -960,7 +1149,8 @@ async function checkForUpdates(manual = false) {
     if (text) text.textContent = `New version ${info.latest} available (you have ${info.current}).`;
     const openBtn = document.getElementById('btnOpenUpdate');
     if (openBtn) openBtn.onclick = async () => {
-      await api('/api/update-open', 'POST', { url: info.release_url });
+      try { await api('/api/update-open', 'POST', { url: info.release_url }); }
+      catch (err) { toast('Failed to open release page: ' + err.message, 'error'); }
     };
     const dismissBtn = document.getElementById('btnDismissUpdate');
     if (dismissBtn) dismissBtn.onclick = () => {
@@ -1231,7 +1421,14 @@ function runPaletteItem(idx) {
   const it = paletteItems[idx];
   if (!it) return;
   closePalette();
-  try { it.run(); } catch (e) { toast('Action failed', 'error'); }
+  try {
+    // Action handlers are usually async — attach a catch so a rejected
+    // promise still surfaces as a toast instead of an unhandled rejection.
+    const r = it.run();
+    if (r && typeof r.catch === 'function') {
+      r.catch(err => toast('Action failed: ' + ((err && err.message) || err), 'error'));
+    }
+  } catch (e) { toast('Action failed: ' + ((e && e.message) || e), 'error'); }
 }
 
 function setFilter(val) {
