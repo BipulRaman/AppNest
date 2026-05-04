@@ -150,6 +150,8 @@ struct AppReq {
     auto_start: bool,
     #[serde(default)]
     script_file: Option<String>,
+    #[serde(default)]
+    color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -193,8 +195,22 @@ fn validate_app_req(body: &AppReq) -> Result<(), &'static str> {
     if body.project_type.trim().is_empty() {
         return Err("Project type is required");
     }
+    if let Some(ref c) = body.color {
+        if !c.is_empty() && !ALLOWED_COLORS.contains(&c.as_str()) {
+            return Err("Unknown card color");
+        }
+    }
     Ok(())
 }
+
+/// Curated palette of card-tint names the UI is allowed to send. We store
+/// names (not hex values) so the CSS layer can map each to different
+/// shades for light vs. dark theme without a data migration. Anything
+/// outside this set is rejected at the API boundary.
+const ALLOWED_COLORS: &[&str] = &[
+    "slate", "red", "orange", "amber", "yellow",
+    "green", "teal", "cyan", "blue", "indigo", "purple", "pink",
+];
 
 // ─── Handlers ───────────────────────────────────────────────────────
 
@@ -217,6 +233,7 @@ async fn add_app(State(mgr): State<Arc<AppManager>>, Json(body): Json<AppReq>) -
         auto_start: body.auto_start,
         script_file: body.script_file,
         order: 0,
+        color: body.color.filter(|s| !s.is_empty()),
     };
     let id = mgr.add_app(entry);
     // 0 is the sentinel returned by add_app when the u32 id space is
@@ -266,6 +283,7 @@ async fn update_app(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>, Jso
         auto_start: body.auto_start,
         script_file: body.script_file,
         order: 0,
+        color: body.color.filter(|s| !s.is_empty()),
     };
     match mgr.update_app(id, entry) {
         Ok(()) => ok("Updated"),

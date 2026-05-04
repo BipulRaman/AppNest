@@ -181,6 +181,14 @@
           Auto-start when AppNest launches
         </label>
 
+        <div class="field">
+          <label>Card Color <span class="field-hint">tints this app's row in the dashboard</span></label>
+          <input type="hidden" id="fColor" value=""/>
+          <div id="fColorSwatches" class="color-swatches" role="radiogroup" aria-label="Card color">
+            <!-- swatches injected by app.js -->
+          </div>
+        </div>
+
         <div class="dialog-foot">
           <button type="button" class="btn btn-flat" onclick="closeModal('modal')">Cancel</button>
           <button type="submit" class="btn btn-accent">Save</button>

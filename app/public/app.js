@@ -287,6 +287,7 @@ function rowSignature(a) {
   return [
     st, a.name, a.type, a.projectDir, a.port || '', a.pid || '',
     a.autoStart ? '1' : '0', a.staticDir || '', a.scriptFile || '',
+    a.color || '',
     pendingStart.has(a.id) ? 'P' : ''
   ].join('|');
 }
@@ -334,7 +335,11 @@ function renderRow(a) {
   const isUp = st === 'running';
   const isBuild = st === 'building';
   const rowClass = isUp ? 'is-running' : (isBuild ? 'is-building' : '');
-  const wrapClass = expandedPreviews.has(a.id) ? 'row-wrap expanded' : 'row-wrap';
+  // Card color: only attach the class when the value is one of the curated
+  // names. Anything else is silently ignored so a stale or hand-edited
+  // apps.json can't inject arbitrary CSS classes into the row.
+  const colorClass = (a.color && CARD_COLORS.indexOf(a.color) !== -1) ? ` color-${a.color}` : '';
+  const wrapClass = (expandedPreviews.has(a.id) ? 'row-wrap expanded' : 'row-wrap') + colorClass;
 
   const portHtml = a.port
     ? (isUp
@@ -602,8 +607,44 @@ async function deleteApp(id) {
 
 // ─── Add / Edit Form ────────────────────────────────
 const $form = document.getElementById('appForm');
-const ids = { id: 'fId', name: 'fName', type: 'fType', mode: 'fMode', dir: 'fDir', serve: 'fServe', port: 'fPort', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto' };
+const ids = { id: 'fId', name: 'fName', type: 'fType', mode: 'fMode', dir: 'fDir', serve: 'fServe', port: 'fPort', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto', color: 'fColor' };
 const $ = Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, document.getElementById(v)]));
+
+// Curated card-tint palette. Names MUST match `ALLOWED_COLORS` on the
+// server (server.rs) — the backend rejects anything not in the set, so
+// adding/removing a color requires updating both lists in lockstep.
+const CARD_COLORS = [
+  'slate','red','orange','amber','yellow',
+  'green','teal','cyan','blue','indigo','purple','pink'
+];
+
+function buildColorSwatches() {
+  const wrap = document.getElementById('fColorSwatches');
+  if (!wrap) return;
+  // "None" tile + one tile per color. We toggle the visual selection by
+  // matching against the hidden input's current value, which is the
+  // single source of truth submitted to the API.
+  let html = `<button type="button" class="swatch swatch-none" data-color="" role="radio" title="No color" aria-label="No color"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
+  for (const c of CARD_COLORS) {
+    html += `<button type="button" class="swatch color-${c}" data-color="${c}" role="radio" title="${c}" aria-label="Color ${c}"></button>`;
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.swatch').forEach(btn => {
+    btn.addEventListener('click', () => setSelectedColor(btn.dataset.color));
+  });
+}
+
+function setSelectedColor(value) {
+  $.color.value = value || '';
+  const wrap = document.getElementById('fColorSwatches');
+  if (!wrap) return;
+  wrap.querySelectorAll('.swatch').forEach(btn => {
+    const sel = (btn.dataset.color || '') === ($.color.value || '');
+    btn.classList.toggle('is-selected', sel);
+    btn.setAttribute('aria-checked', sel ? 'true' : 'false');
+  });
+}
+buildColorSwatches();
 
 function applyPreset() {
   const preset = presets[$.type.value];
@@ -635,6 +676,7 @@ document.getElementById('btnAdd').onclick = () => {
   $.script.value = '';
   $.auto.checked = false;
   $.type.value = 'dotnet';
+  setSelectedColor('');
   applyPreset();
   document.getElementById('modalTitle').textContent = 'New Application';
   document.getElementById('modal').classList.remove('hidden');
@@ -661,6 +703,7 @@ async function editApp(id) {
   $.script.value = a.scriptFile || '';
   $.env.value = Object.entries(a.envVars || {}).map(([k, v]) => `${k}=${v}`).join('\n');
   $.auto.checked = !!a.autoStart;
+  setSelectedColor(a.color || '');
   toggleServe();
   document.getElementById('modalTitle').textContent = 'Edit Application';
   document.getElementById('modal').classList.remove('hidden');
@@ -712,6 +755,7 @@ $form.onsubmit = async (e) => {
     port: port,
     envVars: parseEnv($.env.value),
     autoStart: $.auto.checked,
+    color: $.color.value || null,
   };
   try {
     if ($.id.value) {

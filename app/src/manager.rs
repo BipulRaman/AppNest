@@ -122,6 +122,12 @@ pub struct SavedApp {
     pub script_file: Option<String>,
     #[serde(default)]
     pub order: u32,
+    /// Optional preset color name (e.g. "indigo") used to tint this app's
+    /// row in the dashboard. We store the *name*, not a hex value, so the
+    /// CSS layer can map it to different shades for light vs. dark theme
+    /// without a data migration. None = no tint.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 // ─── Runtime State ──────────────────────────────────────────────────
@@ -219,6 +225,7 @@ pub struct AppResponse {
     pub order: u32,
     pub started_at: Option<u64>,
     pub uptime_seconds: Option<u64>,
+    pub color: Option<String>,
 }
 
 // ─── App Manager ────────────────────────────────────────────────────
@@ -414,6 +421,7 @@ impl AppManager {
             order: a.entry.order,
             started_at: a.started_at,
             uptime_seconds: a.started_at.map(|s| now.saturating_sub(s)),
+            color: a.entry.color.clone(),
         }).collect()
     }
 
@@ -523,6 +531,7 @@ impl AppManager {
         app.entry.env_vars = updates.env_vars;
         app.entry.auto_start = updates.auto_start;
         app.entry.script_file = updates.script_file;
+        app.entry.color = updates.color;
         if old_name != new_name {
             let old_san = sanitize_log_name(&old_name, id);
             let new_san = sanitize_log_name(&new_name, id);

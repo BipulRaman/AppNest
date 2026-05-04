@@ -559,6 +559,104 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
   white-space:pre;word-break:normal;
 }
 
+/* ━━━ Card color tints ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/*
+ * Two layers per color, kept very light so even a fully-tinted dashboard
+ * stays calm:
+ *   --card-tint    — applied as the row background (replaces var(--card))
+ *   --card-accent  — the accent bar on the row's left edge + swatch fill
+ *
+ * Light-theme tints are pastel washes (~94–97% L). Dark-theme tints are
+ * the same hues at very low alpha so they read as a faint hue cast over
+ * the existing card surface rather than fighting it.
+ */
+:root{
+  --card-tint-slate:#f1f5f9;   --card-accent-slate:#94a3b8;
+  --card-tint-red:#fee2e2;     --card-accent-red:#f87171;
+  --card-tint-orange:#ffedd5;  --card-accent-orange:#fb923c;
+  --card-tint-amber:#fef3c7;   --card-accent-amber:#fbbf24;
+  --card-tint-yellow:#fef9c3;  --card-accent-yellow:#facc15;
+  --card-tint-green:#dcfce7;   --card-accent-green:#4ade80;
+  --card-tint-teal:#ccfbf1;    --card-accent-teal:#2dd4bf;
+  --card-tint-cyan:#cffafe;    --card-accent-cyan:#22d3ee;
+  --card-tint-blue:#dbeafe;    --card-accent-blue:#60a5fa;
+  --card-tint-indigo:#e0e7ff;  --card-accent-indigo:#818cf8;
+  --card-tint-purple:#ede9fe;  --card-accent-purple:#a78bfa;
+  --card-tint-pink:#fce7f3;    --card-accent-pink:#f472b6;
+}
+[data-theme="dark"]{
+  --card-tint-slate:rgba(148,163,184,.10);   --card-accent-slate:#94a3b8;
+  --card-tint-red:rgba(248,113,113,.12);     --card-accent-red:#f87171;
+  --card-tint-orange:rgba(251,146,60,.12);   --card-accent-orange:#fb923c;
+  --card-tint-amber:rgba(251,191,36,.12);    --card-accent-amber:#fbbf24;
+  --card-tint-yellow:rgba(250,204,21,.12);   --card-accent-yellow:#facc15;
+  --card-tint-green:rgba(74,222,128,.12);    --card-accent-green:#4ade80;
+  --card-tint-teal:rgba(45,212,191,.12);     --card-accent-teal:#2dd4bf;
+  --card-tint-cyan:rgba(34,211,238,.12);     --card-accent-cyan:#22d3ee;
+  --card-tint-blue:rgba(96,165,250,.12);     --card-accent-blue:#60a5fa;
+  --card-tint-indigo:rgba(129,140,248,.14);  --card-accent-indigo:#818cf8;
+  --card-tint-purple:rgba(167,139,250,.14);  --card-accent-purple:#a78bfa;
+  --card-tint-pink:rgba(244,114,182,.14);    --card-accent-pink:#f472b6;
+}
+
+/* Per-color row mapping. The .color-* class lives on .row-wrap so we can
+ * switch tint without re-rendering the .app-row contents. */
+.row-wrap.color-slate  .app-row{background:var(--card-tint-slate);  --card-accent:var(--card-accent-slate)}
+.row-wrap.color-red    .app-row{background:var(--card-tint-red);    --card-accent:var(--card-accent-red)}
+.row-wrap.color-orange .app-row{background:var(--card-tint-orange); --card-accent:var(--card-accent-orange)}
+.row-wrap.color-amber  .app-row{background:var(--card-tint-amber);  --card-accent:var(--card-accent-amber)}
+.row-wrap.color-yellow .app-row{background:var(--card-tint-yellow); --card-accent:var(--card-accent-yellow)}
+.row-wrap.color-green  .app-row{background:var(--card-tint-green);  --card-accent:var(--card-accent-green)}
+.row-wrap.color-teal   .app-row{background:var(--card-tint-teal);   --card-accent:var(--card-accent-teal)}
+.row-wrap.color-cyan   .app-row{background:var(--card-tint-cyan);   --card-accent:var(--card-accent-cyan)}
+.row-wrap.color-blue   .app-row{background:var(--card-tint-blue);   --card-accent:var(--card-accent-blue)}
+.row-wrap.color-indigo .app-row{background:var(--card-tint-indigo); --card-accent:var(--card-accent-indigo)}
+.row-wrap.color-purple .app-row{background:var(--card-tint-purple); --card-accent:var(--card-accent-purple)}
+.row-wrap.color-pink   .app-row{background:var(--card-tint-pink);   --card-accent:var(--card-accent-pink)}
+
+/* The status accent (running/building) wins over the color accent so the
+ * lifecycle signal is never lost; only stopped rows show the user tint
+ * on the left edge. */
+.row-wrap[class*="color-"] .app-row::before{background:var(--card-accent)}
+.row-wrap[class*="color-"] .app-row.is-running::before{background:var(--green)}
+.row-wrap[class*="color-"] .app-row.is-building::before{background:var(--orange)}
+
+/* ━━━ Color picker (modal) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.color-swatches{
+  display:flex;flex-wrap:wrap;gap:8px;
+  margin-top:6px;
+}
+.swatch{
+  width:24px;height:24px;border-radius:50%;
+  border:1px solid var(--border);
+  background:var(--card);
+  cursor:pointer;padding:0;
+  transition:transform var(--transition),box-shadow var(--transition),border-color var(--transition);
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--text-muted);
+}
+.swatch:hover{transform:scale(1.12);border-color:var(--border-hover)}
+.swatch.is-selected{
+  border-color:var(--text);
+  box-shadow:0 0 0 2px var(--card),0 0 0 3px var(--text);
+}
+.swatch-none svg{width:14px;height:14px;display:block}
+/* Each color tile shows the actual tint that will appear on the card,
+ * with a slightly stronger ring so they're distinguishable on a white
+ * dialog background. */
+.swatch.color-slate  {background:var(--card-tint-slate);  border-color:var(--card-accent-slate)}
+.swatch.color-red    {background:var(--card-tint-red);    border-color:var(--card-accent-red)}
+.swatch.color-orange {background:var(--card-tint-orange); border-color:var(--card-accent-orange)}
+.swatch.color-amber  {background:var(--card-tint-amber);  border-color:var(--card-accent-amber)}
+.swatch.color-yellow {background:var(--card-tint-yellow); border-color:var(--card-accent-yellow)}
+.swatch.color-green  {background:var(--card-tint-green);  border-color:var(--card-accent-green)}
+.swatch.color-teal   {background:var(--card-tint-teal);   border-color:var(--card-accent-teal)}
+.swatch.color-cyan   {background:var(--card-tint-cyan);   border-color:var(--card-accent-cyan)}
+.swatch.color-blue   {background:var(--card-tint-blue);   border-color:var(--card-accent-blue)}
+.swatch.color-indigo {background:var(--card-tint-indigo); border-color:var(--card-accent-indigo)}
+.swatch.color-purple {background:var(--card-tint-purple); border-color:var(--card-accent-purple)}
+.swatch.color-pink   {background:var(--card-tint-pink);   border-color:var(--card-accent-pink)}
+
 /* ━━━ Toast ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .toast-wrap{
   position:fixed;bottom:20px;right:20px;z-index:200;
