@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AppNest — Build, run & host all your local apps from one dashboard</title>
+  <meta name="description" content="AppNest is a tiny native dashboard for managing local development apps. Build, run, host, and stream logs for .NET, Node, React, Angular, Vue and more — from a single 2 MB executable. No Docker. No runtime. Just one app." />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="color-scheme" content="light dark" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="AppNest — Local app manager for developers" />
+  <meta property="og:description" content="Stop juggling terminals. Build, run, host, and watch all your local apps from one lightweight dashboard. Single 2 MB native executable." />
+  <meta property="og:url" content="https://appnest.bipul.in/" />
+  <meta property="og:image" content="https://appnest.bipul.in/Dashboard.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AppNest — Local app manager for developers" />
+  <meta name="twitter:description" content="Build, run, host, and watch all your local apps from one lightweight dashboard." />
+  <meta name="twitter:image" content="https://appnest.bipul.in/Dashboard.png" />
+  <link rel="canonical" href="https://appnest.bipul.in/" />
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.8'%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3Cpath d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/%3E%3C/svg%3E" />
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+
+  <script>
+    // Apply theme before paint to prevent flash
+    (function () {
+      try {
+        var t = localStorage.getItem('appnest-theme');
+        if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- ━━━ Header ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand" aria-label="AppNest home">
+        <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        <span class="brand-name">AppNest</span>
+      </a>
+
+      <nav class="site-nav" id="siteNav" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#screenshot">Screenshot</a>
+        <a href="#how">How it works</a>
+        <a href="#compare">Compare</a>
+        <a href="#faq">FAQ</a>
+        <a href="#download" class="nav-cta">Download</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="icon-btn" id="btnTheme" type="button" title="Toggle theme" aria-label="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>
+        </button>
+        <a class="icon-btn" href="https://github.com/BipulRaman/AppNest" target="_blank" rel="noopener" title="View on GitHub" aria-label="View on GitHub">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.69.08-.69 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.19a11.07 11.07 0 0 1 5.79 0c2.21-1.5 3.18-1.19 3.18-1.19.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.07.78 2.16 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" /></svg>
+        </a>
+        <button class="icon-btn nav-toggle" id="btnNav" type="button" aria-label="Open menu" aria-controls="siteNav" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ━━━ Hero ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section class="hero">
+      <div class="container hero-inner">
+        <div class="hero-copy">
+          <span class="eyebrow">
+            <span class="dot"></span>
+            Built with Rust · Single native binary
+          </span>
+          <h1 class="hero-title">
+            Build, run &amp; host <em>all</em> your local apps —<br />
+            from <span class="grad">one tiny dashboard.</span>
+          </h1>
+          <p class="hero-sub">
+            AppNest is a developer productivity tool for managing local web applications.
+            Start, stop, monitor and stream logs for .NET, Node.js, React, Angular, Vue, Express
+            — all from a single lightweight dashboard. <strong>No Docker. No runtime. No config files.</strong>
+          </p>
+
+          <div class="hero-cta">
+            <a class="btn btn-accent btn-lg" href="#download">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              Download AppNest
+            </a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/BipulRaman/AppNest" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.69.08-.69 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.19a11.07 11.07 0 0 1 5.79 0c2.21-1.5 3.18-1.19 3.18-1.19.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.07.78 2.16 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" /></svg>
+              Star on GitHub
+            </a>
+          </div>
+
+          <ul class="hero-meta">
+            <li><strong>~2 MB</strong> binary</li>
+            <li><strong>~15 MB</strong> RAM</li>
+            <li><strong>Zero</strong> dependencies</li>
+            <li><strong>Win · macOS · Linux</strong></li>
+          </ul>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+          <div class="window-mock">
+            <div class="window-bar">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+              <span class="window-title">AppNest · localhost:1234</span>
+            </div>
+            <div class="window-body">
+              <div class="row">
+                <span class="status running"></span>
+                <span class="row-name">api-gateway</span>
+                <span class="row-meta">.NET · :5001</span>
+                <span class="badge ok">running</span>
+              </div>
+              <div class="row">
+                <span class="status running"></span>
+                <span class="row-name">web-shell</span>
+                <span class="row-meta">React · :3000</span>
+                <span class="badge ok">running</span>
+              </div>
+              <div class="row">
+                <span class="status running"></span>
+                <span class="row-name">orders-svc</span>
+                <span class="row-meta">Node · :4001</span>
+                <span class="badge ok">running</span>
+              </div>
+              <div class="row">
+                <span class="status stopped"></span>
+                <span class="row-name">admin-portal</span>
+                <span class="row-meta">Angular · :4200</span>
+                <span class="badge muted">stopped</span>
+              </div>
+              <div class="row">
+                <span class="status running"></span>
+                <span class="row-name">docs-site</span>
+                <span class="row-meta">Static · :8080</span>
+                <span class="badge ok">running</span>
+              </div>
+              <div class="row log-row">
+                <pre><span class="log-time">14:02:11</span> <span class="log-ok">✓</span> orders-svc listening on :4001
+<span class="log-time">14:02:13</span> <span class="log-info">i</span> web-shell HMR ready in 412ms
+<span class="log-time">14:02:18</span> <span class="log-warn">!</span> api-gateway slow query 1.2s</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ━━━ Logos / framework strip ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section class="strip">
+      <div class="container strip-inner">
+        <span class="strip-label">Works with</span>
+        <ul class="strip-items">
+          <li>.NET</li><li>Node.js</li><li>React</li><li>Next.js</li>
+          <li>Angular</li><li>Vue</li><li>Express</li><li>Static SPAs</li>
+          <li>+ anything you can run from a terminal</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ━━━ Features ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="features" class="section">
+      <div class="container">
+        <header class="section-head">
+          <span class="kicker">Features</span>
+          <h2>Everything you need to run a stack of apps locally.</h2>
+          <p class="lead">No YAML, no Docker, no daemon. Just a 2 MB executable and a beautiful dashboard at <code>http://localhost:1234</code>.</p>
+        </header>
+
+        <div class="features-grid">
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+            </div>
+            <h3>One-click build &amp; run</h3>
+            <p>Add a project, pick its type, hit Start. Build steps and run command execute automatically — every time.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+            </div>
+            <h3>Multi-app local hosting</h3>
+            <p>Host as many apps as you want on different ports — simultaneously — from a single place.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+            </div>
+            <h3>Live log streaming</h3>
+            <p>SSE-powered logs with ANSI colors, clickable URLs, timestamps, in-log search, follow mode, and error highlighting.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
+            </div>
+            <h3>Smart presets</h3>
+            <p>.NET, Node, React, Next, Angular, Vue, Express — pre-configured with sensible defaults. Add your own in <code>presets.json</code>.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+            </div>
+            <h3>Static SPA hosting</h3>
+            <p>Serve <code>build/</code> or <code>dist/</code> output for React, Angular, Vue with SPA fallback. No <code>npx serve</code> needed.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+            </div>
+            <h3>Command palette</h3>
+            <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>K</kbd> opens a fuzzy launcher for every app and action. Keyboard-driven by design.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            </div>
+            <h3>Uptime &amp; PID at a glance</h3>
+            <p>Live uptime per app, port chip opens the URL (left-click) or copies it (right-click). PID shown for quick attach.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 2a14 14 0 0 0 0 20M2 12h20" /></svg>
+            </div>
+            <h3>Dark &amp; light themes</h3>
+            <p>Indigo accent with a proper dark mode. Theme persists across launches and respects your OS preference.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /></svg>
+            </div>
+            <h3>System tray (Windows)</h3>
+            <p>Runs in the background. Start All, Stop All, or Quit straight from the tray. macOS &amp; Linux tray on the way.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <h3>Auto-start apps</h3>
+            <p>Flag any app to spin up automatically when AppNest launches. Reboot &rarr; full stack ready.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4" /><path d="M3 17l9 4 9-4" /></svg>
+            </div>
+            <h3>Drag-to-reorder</h3>
+            <p>Arrange your apps in the order that makes sense for your workflow. Order is persisted.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6H4zM4 14h16v6H4z" /></svg>
+            </div>
+            <h3>Open folder &amp; terminal</h3>
+            <p>Jump from the logs modal straight into Explorer or your native terminal — Windows Terminal, PowerShell, macOS Terminal, or your Linux emulator.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ━━━ Screenshot ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="screenshot" class="section section-alt">
+      <div class="container">
+        <header class="section-head center">
+          <span class="kicker">The dashboard</span>
+          <h2>One pane of glass for your whole local stack.</h2>
+          <p class="lead">Filter chips, fuzzy search, live status, inline log preview, and a one-click logs modal for every app.</p>
+        </header>
+        <figure class="screenshot">
+          <img src="Dashboard.png" alt="AppNest dashboard showing multiple running applications with live status, ports, and inline log previews" loading="lazy" />
+        </figure>
+      </div>
+    </section>
+
+    <!-- ━━━ How it works ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="how" class="section">
+      <div class="container">
+        <header class="section-head">
+          <span class="kicker">How it works</span>
+          <h2>From download to running stack in under a minute.</h2>
+        </header>
+
+        <ol class="steps">
+          <li class="step">
+            <span class="step-num">1</span>
+            <h3>Download &amp; run</h3>
+            <p>Grab the binary for your OS. No installer, no admin rights. Double-click — the dashboard opens at <code>http://localhost:1234</code>.</p>
+          </li>
+          <li class="step">
+            <span class="step-num">2</span>
+            <h3>Add an app</h3>
+            <p>Click <strong>New Application</strong>, pick a preset (.NET, Node, React, …), browse to your project folder. All fields are pre-filled.</p>
+          </li>
+          <li class="step">
+            <span class="step-num">3</span>
+            <h3>Hit Start</h3>
+            <p>AppNest runs your build steps, then your run command. Watch live logs stream in. Open the URL with one click.</p>
+          </li>
+          <li class="step">
+            <span class="step-num">4</span>
+            <h3>Repeat</h3>
+            <p>Add as many apps as you need. Mark the ones you want to <em>auto-start</em>. Close your laptop &mdash; tomorrow it's all there again.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ━━━ Compare ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="compare" class="section section-alt">
+      <div class="container">
+        <header class="section-head">
+          <span class="kicker">Why AppNest</span>
+          <h2>Built for the inner-loop. Not a Docker replacement.</h2>
+          <p class="lead">AppNest optimizes for <strong>developer speed</strong> on your own machine. Use Docker for production, CI, and reproducible environments — and use AppNest for everything else.</p>
+        </header>
+
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>You'll love AppNest if&hellip;</h3>
+            <ul class="check-list good">
+              <li>You juggle 3–8 local projects daily and your terminals look like a Christmas tree.</li>
+              <li>Docker Desktop eats 2–4 GB of RAM before you've even started coding.</li>
+              <li>You want a unified dashboard for .NET, Node, React, Angular, Vue — without writing YAML.</li>
+              <li>You use private feeds (npm, NuGet, Azure Artifacts) and Docker secret juggling drives you crazy.</li>
+              <li>You like single-binary tools that stay out of the way.</li>
+            </ul>
+          </div>
+          <div class="compare-col">
+            <h3>You should keep using Docker if&hellip;</h3>
+            <ul class="check-list bad">
+              <li>You need strict prod/dev environment parity (specific OS, libc, system packages).</li>
+              <li>You're orchestrating 15+ services with complex dependency graphs and health checks.</li>
+              <li>You rely on disposable, pre-configured database images (Postgres, Redis, Mongo).</li>
+              <li>You need network isolation, custom routing, or multi-machine topologies.</li>
+              <li>Your team standardizes on containers for deployment.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ━━━ Download ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="download" class="section">
+      <div class="container">
+        <header class="section-head center">
+          <span class="kicker">Download</span>
+          <h2>Pick your OS &mdash; one file, ready to run.</h2>
+          <p class="lead">No installer. No runtime. App data lives under your user profile and never leaves your machine.</p>
+        </header>
+
+        <div class="download-grid">
+          <a class="download-card" href="https://github.com/BipulRaman/AppNest/releases/latest" target="_blank" rel="noopener">
+            <div class="dl-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.475L10.207 4.5v6.92H3V5.475zM3 18.525L10.207 19.5v-6.92H3v5.945zM11.293 19.65L21 21V12.58h-9.707v7.07zm0-15.3L21 3v8.42h-9.707V4.35z"/></svg>
+            </div>
+            <div class="dl-meta">
+              <h3>Windows</h3>
+              <p>10 / 11 · x86_64</p>
+              <span class="dl-file"><code>appnest-windows-x86_64.exe</code></span>
+            </div>
+            <span class="dl-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+
+          <a class="download-card" href="https://github.com/BipulRaman/AppNest/releases/latest" target="_blank" rel="noopener">
+            <div class="dl-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.36 1.43c.05 1.16-.42 2.32-1.18 3.13-.78.83-2.05 1.45-3.18 1.36-.07-1.13.49-2.31 1.21-3.05.78-.83 2.13-1.43 3.15-1.44zM20.5 17.6c-.49 1.13-.73 1.64-1.36 2.65-.88 1.4-2.13 3.15-3.66 3.16-1.36.01-1.71-.88-3.55-.87-1.84.01-2.23.88-3.59.87-1.54-.01-2.71-1.59-3.59-2.99C2.32 16.46 2.06 11.4 4.13 8.7c1.46-1.91 3.78-3.04 5.94-3.04 2.21 0 3.6 1.21 5.42 1.21 1.77 0 2.85-1.21 5.4-1.21 1.93 0 3.97 1.05 5.42 2.87-4.77 2.62-3.99 9.4-3.81 9.07z"/></svg>
+            </div>
+            <div class="dl-meta">
+              <h3>macOS</h3>
+              <p>12+ · Apple Silicon &amp; Intel</p>
+              <span class="dl-file"><code>appnest-macos-arm64.tar.gz</code></span>
+            </div>
+            <span class="dl-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+
+          <a class="download-card" href="https://github.com/BipulRaman/AppNest/releases/latest" target="_blank" rel="noopener">
+            <div class="dl-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.3 2c1.6 0 2.9 1.3 2.9 2.9 0 .9-.4 1.7-1 2.2.5.6 1.6 1.9 1.9 3 .8 2.7 2.2 4.4 3 6.1.7 1.5 0 2.7-.7 3.4-.4.4-1.1.6-1.7.4-.2.7-.7 1.2-1.5 1.4-1 .3-2.2 0-2.9-.7-.9.4-2.5.4-3.4 0-.7.7-1.9 1-2.9.7-.8-.2-1.3-.7-1.5-1.4-.6.2-1.3 0-1.7-.4-.7-.7-1.4-1.9-.7-3.4.8-1.7 2.2-3.4 3-6.1.3-1.1 1.4-2.4 1.9-3-.6-.5-1-1.3-1-2.2C9 3.3 10.3 2 11.9 2h.4z"/></svg>
+            </div>
+            <div class="dl-meta">
+              <h3>Linux</h3>
+              <p>Modern desktop · x86_64</p>
+              <span class="dl-file"><code>appnest-linux-x86_64.tar.gz</code></span>
+            </div>
+            <span class="dl-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+        </div>
+
+        <div class="download-foot">
+          <a href="https://github.com/BipulRaman/AppNest/releases" target="_blank" rel="noopener">All releases &amp; changelog &rarr;</a>
+          <span class="sep">·</span>
+          <a href="https://github.com/BipulRaman/AppNest#building" target="_blank" rel="noopener">Build from source</a>
+        </div>
+
+        <div class="callout">
+          <strong>Heads up:</strong> macOS &amp; Linux builds are produced for every release but are still
+          <em>experimental</em>. Tray integration is Windows-only for now &mdash; on macOS/Linux the app runs in the
+          foreground (<code>Ctrl</code>+<code>C</code> to quit). Please
+          <a href="https://github.com/BipulRaman/AppNest/issues" target="_blank" rel="noopener">open an issue</a>
+          for anything that breaks.
+        </div>
+      </div>
+    </section>
+
+    <!-- ━━━ FAQ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section id="faq" class="section section-alt">
+      <div class="container narrow">
+        <header class="section-head center">
+          <span class="kicker">FAQ</span>
+          <h2>The honest answers.</h2>
+          <p class="lead">The full FAQ &mdash; including all the hard "why not Docker?" questions &mdash; lives in the README.</p>
+        </header>
+
+        <div class="faq">
+          <details>
+            <summary>How is this different from Docker?</summary>
+            <p>Docker virtualizes an entire OS layer; AppNest is a lightweight process manager that runs your apps as native processes with zero abstraction overhead. There's no image to build, no daemon to keep running. You double-click an exe and your apps are live.</p>
+          </details>
+
+          <details>
+            <summary>Will this replace Docker for me?</summary>
+            <p>For local inner-loop development, often yes. For production, CI, reproducible environments, and disposable database images &mdash; no. Use both. They solve different problems.</p>
+          </details>
+
+          <details>
+            <summary>How much RAM does it use?</summary>
+            <p>AppNest itself uses ~10–15 MB of RAM &mdash; it's a native Rust binary with an embedded web UI. Compare to Docker Desktop's 1–4 GB baseline before you even start a container.</p>
+          </details>
+
+          <details>
+            <summary>Does it support hot reload?</summary>
+            <p>Yes &mdash; AppNest runs your apps natively, so whatever hot-reload your framework provides (Vite HMR, <code>dotnet watch</code>, <code>nodemon</code>) just works. No volume mounts, no filesystem event forwarding.</p>
+          </details>
+
+          <details>
+            <summary>What about private feeds (npm, NuGet, Azure Artifacts)?</summary>
+            <p>They just work. Your build commands inherit your existing authentication &mdash; <code>.npmrc</code>, <code>nuget.config</code>, credential providers, env vars &mdash; exactly the same as running from a terminal. No secret juggling.</p>
+          </details>
+
+          <details>
+            <summary>Is the dashboard exposed to the network?</summary>
+            <p>No. AppNest binds exclusively to <code>127.0.0.1</code>. The OS rejects all external connections. Other machines on your LAN cannot reach it.</p>
+          </details>
+
+          <details>
+            <summary>Can I use it in CI/CD?</summary>
+            <p>No. AppNest is a desktop tool with a GUI, system tray, and file dialogs. It's designed for developer workstations. For CI/CD, use Docker, shell scripts, or your CI platform's native tooling.</p>
+          </details>
+
+          <details>
+            <summary>Where is my data stored?</summary>
+            <p>Locally. Configurations live in <code>%APPDATA%\AppNest\apps.json</code> (or the platform equivalent), logs in <code>%APPDATA%\AppNest\logs\</code>. Nothing is sent to the cloud. Ever.</p>
+          </details>
+
+          <details>
+            <summary>How is this different from .NET Aspire / PM2?</summary>
+            <p>Aspire is a .NET-first orchestration framework with service discovery and OpenTelemetry. PM2 is Node-only. AppNest is a framework-agnostic <em>process manager</em> with a web dashboard and a 2 MB footprint &mdash; no SDK requirement, no DSL, no language coupling.</p>
+          </details>
+        </div>
+
+        <p class="faq-more">
+          <a href="https://github.com/BipulRaman/AppNest#faq" target="_blank" rel="noopener">Read the full FAQ on GitHub &rarr;</a>
+        </p>
+      </div>
+    </section>
+
+    <!-- ━━━ CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <section class="cta">
+      <div class="container cta-inner">
+        <h2>Stop juggling terminals.</h2>
+        <p>One app to build, host, and watch them all.</p>
+        <div class="cta-actions">
+          <a class="btn btn-accent btn-lg" href="https://github.com/BipulRaman/AppNest/releases/latest" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+            Get the latest release
+          </a>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/BipulRaman/AppNest" target="_blank" rel="noopener">View source</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ━━━ Footer ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        <div>
+          <strong>AppNest</strong>
+          <span>Local app manager for developers.</span>
+        </div>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/BipulRaman/AppNest" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/BipulRaman/AppNest/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/BipulRaman/AppNest/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/BipulRaman/AppNest/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contribute</a>
+        <a href="https://github.com/BipulRaman/AppNest/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      </nav>
+      <div class="footer-meta">
+        <span>MIT licensed.</span>
+        <span>Built with Rust &middot; <a href="https://bipul.in" target="_blank" rel="noopener">bipul.in</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
