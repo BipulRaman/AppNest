@@ -1,53 +1,57 @@
-name: Build & Release
+name: Release
+
+# Builds the full cross-platform matrix and attaches the binaries to a
+# GitHub Release. Triggers ONLY when a Release is published (manually
+# from the GitHub UI or via `gh release create`), or when manually
+# dispatched against a specific tag. Pushes to main do NOT cut releases
+# — they only run ci.yml.
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'app/**'
-      - '.github/workflows/build.yml'
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing git tag to build & attach binaries to (e.g. v1.1.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
-# Cancel superseded runs on the same branch/PR to save runner minutes.
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: "0"      # pointless in CI, bloats the cache
+  CARGO_INCREMENTAL: "0"
   CARGO_NET_RETRY: "10"
-  RUSTFLAGS: "-C debuginfo=0"  # no debug info in release binaries
+  RUSTFLAGS: "-C debuginfo=0"
 
 jobs:
-  # ─── 1. Compute the version tag ONCE, share with every matrix job ──────────
-  # This avoids 4 parallel `git rev-list` calls and guarantees all artifacts
-  # agree on the same version string even if a commit lands mid-run.
+  # ─── 1. Resolve the version once, share with every matrix job ────────────
   meta:
     runs-on: ubuntu-latest
     outputs:
       build_tag: ${{ steps.v.outputs.tag }}
-      build_label: ${{ steps.v.outputs.label }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0     # needed for rev-list --count
       - id: v
         shell: bash
         run: |
-          count=$(git rev-list --count HEAD)
-          sha=$(git rev-parse --short HEAD)
-          tag="v1.0.$count"
-          echo "tag=$tag"           >> "$GITHUB_OUTPUT"
-          echo "label=$tag+$sha"    >> "$GITHUB_OUTPUT"
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          if [ -z "$tag" ]; then
+            echo "::error::No tag resolved from release event or workflow_dispatch input."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Building release for tag: $tag"
 
-  # ─── 2. Build matrix ───────────────────────────────────────────────────────
+  # ─── 2. Build matrix ─────────────────────────────────────────────────────
   build:
     needs: meta
     strategy:
@@ -67,10 +71,6 @@ jobs:
             artifact_name: appnest-macos-arm64
             binary: appnest
           # Cross-compile the Intel Mac binary on the plentiful ARM runner.
-          # We deliberately avoid the deprecated `macos-13` label — it queues
-          # for 20+ minutes. rustc can target x86_64-apple-darwin from any
-          # macOS host because the Xcode SDK that ships on the ARM runner
-          # includes the Intel sysroot.
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: appnest-macos-x86_64
@@ -79,29 +79,26 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     env:
-      BUILD_TAG:   ${{ needs.meta.outputs.build_tag }}
-      BUILD_LABEL: ${{ needs.meta.outputs.build_label }}
+      BUILD_TAG: ${{ needs.meta.outputs.build_tag }}
 
     steps:
       - uses: actions/checkout@v4
-        # Shallow checkout — we already have the version from the meta job.
+        with:
+          # Check out exactly the tag we're releasing so the binaries match
+          # the source the release page advertises.
+          ref: ${{ needs.meta.outputs.build_tag }}
 
       - name: Stamp Cargo.toml + Cargo.lock version
         shell: bash
         run: |
           ver="${BUILD_TAG#v}"
 
-          # 1. Cargo.toml — replace the first `version = "..."` line.
           awk -v ver="$ver" '
             !done && /^version[[:space:]]*=/ { print "version = \"" ver "\""; done=1; next }
             { print }
           ' app/Cargo.toml > app/Cargo.toml.new
           mv app/Cargo.toml.new app/Cargo.toml
 
-          # 2. Cargo.lock — the lockfile has a `[[package]] name = "appnest"`
-          # stanza followed by its own `version = "..."`. We must keep them in
-          # sync, otherwise `cargo build --locked` refuses to run because the
-          # workspace package's version no longer matches the lockfile.
           if [ -f app/Cargo.lock ]; then
             awk -v ver="$ver" '
               /^\[\[package\]\]/ { in_pkg=1; is_appnest=0 }
@@ -123,9 +120,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Runner images already ship mingw-w64 under C:\ProgramData\mingw64\mingw64\bin
-      # (or at worst C:\ProgramData\Chocolatey\lib\mingw). Point Cargo at it instead
-      # of reinstalling every run (saves 30–60s on the Windows leg).
       - name: Configure MinGW (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -142,33 +136,23 @@ jobs:
               break
             }
           }
-          # Fall back to installing only if nothing is present.
           if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
             Write-Host "No preinstalled MinGW found, installing via choco..."
             choco install mingw -y --no-progress
           }
 
-      # apt-get update + install is cached by the runner image for 24h, but the
-      # actual package download still dominates. `runner.arch` + a fixed key lets
-      # us restore the apt cache across runs.
       - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libgtk-3-dev
 
-      # Swatinem/rust-cache is dramatically faster and smarter than actions/cache
-      # for Cargo: it caches registry + git + target/, keys on Cargo.lock +
-      # rustc version + target triple, and prunes stale artifacts automatically.
       - name: Cache cargo + target
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app
           key: ${{ matrix.target }}
-          # Share the cache across main/PR builds for the same target.
           shared-key: release-${{ matrix.target }}
-          # Don't save the cache on PRs — only on main pushes / tags.
-          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build release
         working-directory: app
@@ -195,16 +179,12 @@ jobs:
             dist/*.tar.gz
           if-no-files-found: error
           retention-days: 14
-          compression-level: 0  # binaries are already ~incompressible; skip zip CPU
+          compression-level: 0
 
-  # ─── 3. Single release job, runs once after all builds succeed ────────────
-  # Previously every matrix leg raced to call softprops/action-gh-release,
-  # each regenerating release notes. Now it's published exactly once.
-  release:
+  # ─── 3. Attach binaries to the existing Release ─────────────────────────
+  publish:
     needs: [meta, build]
     runs-on: ubuntu-latest
-    # Only actually publish on main pushes or version tags.
-    if: github.event_name != 'pull_request'
     env:
       BUILD_TAG: ${{ needs.meta.outputs.build_tag }}
     steps:
@@ -219,12 +199,11 @@ jobs:
           mkdir -p dist
           find artifacts -type f \( -name 'appnest' -o -name 'appnest.exe' -o -name '*.tar.gz' \) \
             -exec cp {} dist/ \;
-          # Rename the raw binaries so each asset on the release is unique.
           if [ -f dist/appnest.exe ]; then
             mv dist/appnest.exe dist/appnest-windows-x86_64.exe
           fi
           if [ -f dist/appnest ]; then
-            rm dist/appnest   # the per-OS .tar.gz already carries the executable
+            rm dist/appnest
           fi
           ls -la dist
 
@@ -233,11 +212,12 @@ jobs:
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt
 
-      - name: Create / update GitHub Release
+      - name: Upload binaries to the Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.BUILD_TAG }}
-          name: ${{ env.BUILD_TAG }}
           files: dist/*
-          generate_release_notes: true
+          # Do NOT regenerate notes — the human-authored release notes
+          # entered in the GitHub UI are the source of truth.
+          generate_release_notes: false
           fail_on_unmatched_files: true

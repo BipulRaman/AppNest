@@ -1,6 +1,10 @@
 [package]
 name = "appnest"
-version = "1.0.23"
+# Placeholder. The real version is stamped into Cargo.toml + Cargo.lock by
+# .github/workflows/release.yml from the published Release's tag (e.g. v1.1.0
+# becomes 1.1.0). Local dev builds report this 0.0.0-dev value; release
+# binaries report whatever tag you publish.
+version = "0.0.0-dev"
 edition = "2021"
 description = "Local app manager for developers — build, run, and monitor projects from a single dashboard"
 

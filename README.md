@@ -22,6 +22,7 @@ Stop juggling terminals. One app to build, host, and watch them all.
 - **Local hosting manager** — Host multiple apps on different ports simultaneously from one place.
 - **Multi-framework presets** — .NET, Node.js, React, Next.js, Angular, Vue, Express with smart defaults (customizable via `presets.json`).
 - **Static file serving** — Serve React/Angular/Vue build output directly without extra tools.
+- **API Mock** — Point at any Swagger 2.0 / OpenAPI 3.x JSON file and AppNest runs a live mock server: Swagger UI at `/`, the raw spec at `/swagger.json`, and one mocked endpoint per `paths × method` returning JSON generated from `example` / `examples` / `schema`. Fully offline — Swagger UI ships embedded in the binary.
 - **Live log streaming** — Runtime and build output streamed via Server-Sent Events with ANSI color preservation, clickable URLs, timestamped lines, and error/warning highlighting.
 - **In-log search & follow mode** — Filter log lines on the fly, highlight matches, and pause/resume auto-scroll with a single click.
 - **Inline log preview** — Quick tail of the latest output right inside each row — no need to open the full modal.
@@ -60,8 +61,8 @@ Each application you add has:
 |-------|-------------|
 | **Name** | Display name for the dashboard |
 | **Project Directory** | Folder where all commands run (Browse to select) |
-| **Type** | .NET, Node.js, React, Next.js, Angular, Vue, Express (driven by `presets.json`) |
-| **Serve Mode** | `Command` (run a process), `Static Folder` (serve files), or `Script File` |
+| **Type** | .NET, Node.js, React, Next.js, Angular, Vue, Express, or **API Mock** (driven by `presets.json`) |
+| **Serve Mode** | `Command` (run a process), `Static Folder` (serve files), `Script File`, or `API Mock` (run a Swagger-driven mock server) |
 | **Port** | Port number — auto-injected as `PORT` env var (or `ASPNETCORE_URLS` for .NET) |
 | **Build & Run Command** | Commands that run in order — last line is the run command (for Command mode) |
 | **Environment Variables** | KEY=VALUE pairs passed to the process |
@@ -72,6 +73,17 @@ When you select a project type, all fields are pre-filled with recommended defau
 ### Static Serving
 
 For React, Angular, and Vue apps, select **Static Folder** as serve mode and point it to your build output (`./build`, `./dist`, etc.). AppNest serves the files directly with SPA fallback — no need for `npx serve` or `http-server`.
+
+### API Mock
+
+Need a backend before the backend exists? Pick **API Mock** as the type, browse to a Swagger 2.0 / OpenAPI 3.x JSON file, set a port, and hit Start. AppNest:
+
+- Serves **Swagger UI** at `http://localhost:<port>/` so you can explore the spec interactively.
+- Serves the raw spec at `/swagger.json`.
+- Registers one mocked route per `paths × method` and returns a JSON body synthesised from the operation's `example`, then `examples`, then `schema` (handles `$ref`, `allOf`, `oneOf`, `enum`, formats like `date-time` / `uuid` / `email`, and OpenAPI 3.1 type arrays).
+- Handles path parameters (`{id}` → `:id`) and Swagger 2.0 `basePath` / OpenAPI 3 `servers[0].url`.
+
+All mock assets are bundled into the binary — it works offline. The mock endpoints have **no authentication** and bind to `127.0.0.1` only.
 
 ## Prerequisites
 
@@ -156,7 +168,9 @@ AppNest/
         ├── index.html    # Dashboard UI
         ├── style.css     # Styles
         ├── app.js        # Frontend logic
-        └── presets.json  # App type presets (customizable)
+        ├── presets.json  # App type presets (customizable)
+        ├── swagger-ui.css        # Bundled Swagger UI for API Mock (offline)
+        └── swagger-ui-bundle.js  # Bundled Swagger UI for API Mock (offline)
 ```
 
 **At build time**, the `public/` folder is compiled into the binary via `rust-embed`. The final exe has no external file dependencies.

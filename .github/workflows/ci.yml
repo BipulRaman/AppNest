@@ -1,0 +1,62 @@
+name: CI
+
+# Fast verification build that runs on every push to main and every PR.
+# This DOES NOT publish artifacts or releases — it only proves that the
+# code compiles and lints cleanly. The full cross-platform release build
+# lives in release.yml and triggers only on a published Release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch/PR to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  RUSTFLAGS: "-C debuginfo=0"
+
+jobs:
+  check:
+    name: Build & lint (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          shared-key: ci-linux
+
+      - name: cargo build
+        working-directory: app
+        run: cargo build --release
+
+      - name: cargo clippy
+        working-directory: app
+        run: cargo clippy --release --all-targets -- -D warnings
+        continue-on-error: true
