@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>AppNest</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.8'%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3Cpath d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/%3E%3C/svg%3E"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <!-- Inter is intentionally not loaded from Google Fonts — AppNest must work fully offline. The CSS font stack falls back to system UI fonts (Segoe UI on Windows, -apple-system on macOS). -->
   <link rel="stylesheet" href="style.css"/>
   <script>
     // Apply theme before paint to prevent flash
@@ -147,6 +147,7 @@
               <option value="command">Command</option>
               <option value="static">Static Folder</option>
               <option value="script">Script File</option>
+              <option value="apimock">API Mock</option>
             </select>
           </div>
           <div class="field" style="width:100px">
@@ -162,6 +163,13 @@
             <div class="field-with-btn">
               <input type="text" id="fScript"/>
               <button type="button" class="browse-btn" onclick="pickScript()">Browse</button>
+            </div>
+          </div>
+          <div class="field grow hidden" id="fSwaggerWrap">
+            <label for="fSwagger">Swagger JSON</label>
+            <div class="field-with-btn">
+              <input type="text" id="fSwagger"/>
+              <button type="button" class="browse-btn" onclick="pickSwagger()">Browse</button>
             </div>
           </div>
         </div>

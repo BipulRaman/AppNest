@@ -124,5 +124,23 @@
       "env": "NODE_ENV=production",
       "static": ""
     }
+  },
+  {
+    "value": "apimock",
+    "label": "API Mock",
+    "dev": {
+      "serve": "apimock",
+      "port": 4010,
+      "build": "",
+      "env": "",
+      "static": ""
+    },
+    "release": {
+      "serve": "apimock",
+      "port": 4010,
+      "build": "",
+      "env": "",
+      "static": ""
+    }
   }
 ]

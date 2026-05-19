@@ -319,6 +319,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .dialog-lg .dialog-head{flex-shrink:0}
 .dialog-lg .dialog-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
+/* Keep the add/edit dialog at its tallest layout so toggling Serve Mode
+ * (which hides/shows several fields) doesn't snap the dialog height and
+ * make the surrounding UI flicker. The value covers the worst-case
+ * Command-mode form with build textarea + env textarea + all rows. */
+#modal #appForm{min-height:600px}
+
 /* Confirm dialog */
 .confirm-title{font-size:15px;font-weight:700;margin-bottom:6px}
 .confirm-message{font-size:13px;color:var(--text-secondary);line-height:1.55}
@@ -561,42 +567,44 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 
 /* ━━━ Card color tints ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /*
- * Two layers per color, kept very light so even a fully-tinted dashboard
- * stays calm:
- *   --card-tint    — applied as the row background (replaces var(--card))
- *   --card-accent  — the accent bar on the row's left edge + swatch fill
+ * Two layers per color, kept VERY light so a fully-tinted dashboard still
+ * reads as a clean neutral surface with a hint of hue:
+ *   --card-tint    — applied as the row background (Tailwind ~50 tier:
+ *                    L≈98%, almost white, just enough to suggest a color)
+ *   --card-accent  — the accent strip on the row's left edge + swatch fill
+ *                    (Tailwind ~500 tier — saturated enough to identify the
+ *                    color from a glance even though the wash is faint)
  *
- * Light-theme tints are pastel washes (~94–97% L). Dark-theme tints are
- * the same hues at very low alpha so they read as a faint hue cast over
- * the existing card surface rather than fighting it.
+ * Dark-theme tints are the same hues at very low alpha so they read as a
+ * faint hue cast over the existing card surface rather than fighting it.
  */
 :root{
-  --card-tint-slate:#f1f5f9;   --card-accent-slate:#94a3b8;
-  --card-tint-red:#fee2e2;     --card-accent-red:#f87171;
-  --card-tint-orange:#ffedd5;  --card-accent-orange:#fb923c;
-  --card-tint-amber:#fef3c7;   --card-accent-amber:#fbbf24;
-  --card-tint-yellow:#fef9c3;  --card-accent-yellow:#facc15;
-  --card-tint-green:#dcfce7;   --card-accent-green:#4ade80;
-  --card-tint-teal:#ccfbf1;    --card-accent-teal:#2dd4bf;
-  --card-tint-cyan:#cffafe;    --card-accent-cyan:#22d3ee;
-  --card-tint-blue:#dbeafe;    --card-accent-blue:#60a5fa;
-  --card-tint-indigo:#e0e7ff;  --card-accent-indigo:#818cf8;
-  --card-tint-purple:#ede9fe;  --card-accent-purple:#a78bfa;
-  --card-tint-pink:#fce7f3;    --card-accent-pink:#f472b6;
+  --card-tint-slate:#f8fafc;   --card-accent-slate:#64748b;
+  --card-tint-red:#fef2f2;     --card-accent-red:#ef4444;
+  --card-tint-orange:#fff7ed;  --card-accent-orange:#f97316;
+  --card-tint-amber:#fffbeb;   --card-accent-amber:#f59e0b;
+  --card-tint-yellow:#fefce8;  --card-accent-yellow:#eab308;
+  --card-tint-green:#f0fdf4;   --card-accent-green:#22c55e;
+  --card-tint-teal:#f0fdfa;    --card-accent-teal:#14b8a6;
+  --card-tint-cyan:#ecfeff;    --card-accent-cyan:#06b6d4;
+  --card-tint-blue:#eff6ff;    --card-accent-blue:#3b82f6;
+  --card-tint-indigo:#eef2ff;  --card-accent-indigo:#6366f1;
+  --card-tint-purple:#faf5ff;  --card-accent-purple:#a855f7;
+  --card-tint-pink:#fdf2f8;    --card-accent-pink:#ec4899;
 }
 [data-theme="dark"]{
-  --card-tint-slate:rgba(148,163,184,.10);   --card-accent-slate:#94a3b8;
-  --card-tint-red:rgba(248,113,113,.12);     --card-accent-red:#f87171;
-  --card-tint-orange:rgba(251,146,60,.12);   --card-accent-orange:#fb923c;
-  --card-tint-amber:rgba(251,191,36,.12);    --card-accent-amber:#fbbf24;
-  --card-tint-yellow:rgba(250,204,21,.12);   --card-accent-yellow:#facc15;
-  --card-tint-green:rgba(74,222,128,.12);    --card-accent-green:#4ade80;
-  --card-tint-teal:rgba(45,212,191,.12);     --card-accent-teal:#2dd4bf;
-  --card-tint-cyan:rgba(34,211,238,.12);     --card-accent-cyan:#22d3ee;
-  --card-tint-blue:rgba(96,165,250,.12);     --card-accent-blue:#60a5fa;
-  --card-tint-indigo:rgba(129,140,248,.14);  --card-accent-indigo:#818cf8;
-  --card-tint-purple:rgba(167,139,250,.14);  --card-accent-purple:#a78bfa;
-  --card-tint-pink:rgba(244,114,182,.14);    --card-accent-pink:#f472b6;
+  --card-tint-slate:rgba(148,163,184,.07);   --card-accent-slate:#94a3b8;
+  --card-tint-red:rgba(248,113,113,.08);     --card-accent-red:#f87171;
+  --card-tint-orange:rgba(251,146,60,.08);   --card-accent-orange:#fb923c;
+  --card-tint-amber:rgba(251,191,36,.08);    --card-accent-amber:#fbbf24;
+  --card-tint-yellow:rgba(250,204,21,.08);   --card-accent-yellow:#facc15;
+  --card-tint-green:rgba(74,222,128,.08);    --card-accent-green:#4ade80;
+  --card-tint-teal:rgba(45,212,191,.08);     --card-accent-teal:#2dd4bf;
+  --card-tint-cyan:rgba(34,211,238,.08);     --card-accent-cyan:#22d3ee;
+  --card-tint-blue:rgba(96,165,250,.08);     --card-accent-blue:#60a5fa;
+  --card-tint-indigo:rgba(129,140,248,.10);  --card-accent-indigo:#818cf8;
+  --card-tint-purple:rgba(167,139,250,.10);  --card-accent-purple:#a78bfa;
+  --card-tint-pink:rgba(244,114,182,.10);    --card-accent-pink:#f472b6;
 }
 
 /* Per-color row mapping. The .color-* class lives on .row-wrap so we can

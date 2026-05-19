@@ -120,6 +120,12 @@ pub struct SavedApp {
     pub auto_start: bool,
     #[serde(default)]
     pub script_file: Option<String>,
+    /// Path to a Swagger 2.0 / OpenAPI 3.x JSON file. When set, AppNest
+    /// runs an API mock server (see `apimock.rs`) instead of spawning a
+    /// child process. Swagger UI is served at `/` and `/swagger.json`,
+    /// and one mocked route is registered per `paths` x `method`.
+    #[serde(default)]
+    pub swagger_file: Option<String>,
     #[serde(default)]
     pub order: u32,
     /// Optional preset color name (e.g. "indigo") used to tint this app's
@@ -222,6 +228,7 @@ pub struct AppResponse {
     pub building: bool,
     pub auto_start: bool,
     pub script_file: Option<String>,
+    pub swagger_file: Option<String>,
     pub order: u32,
     pub started_at: Option<u64>,
     pub uptime_seconds: Option<u64>,
@@ -418,6 +425,7 @@ impl AppManager {
             building: a.status == "building",
             auto_start: a.entry.auto_start,
             script_file: a.entry.script_file.clone(),
+            swagger_file: a.entry.swagger_file.clone(),
             order: a.entry.order,
             started_at: a.started_at,
             uptime_seconds: a.started_at.map(|s| now.saturating_sub(s)),
@@ -531,6 +539,7 @@ impl AppManager {
         app.entry.env_vars = updates.env_vars;
         app.entry.auto_start = updates.auto_start;
         app.entry.script_file = updates.script_file;
+        app.entry.swagger_file = updates.swagger_file;
         app.entry.color = updates.color;
         if old_name != new_name {
             let old_san = sanitize_log_name(&old_name, id);
@@ -795,6 +804,90 @@ impl AppManager {
         }.ok_or("App not found")?;
 
         let cwd = &entry.project_dir;
+
+        // ── API Mock mode ─────────────────────────────────────────────
+        // When a swagger/openapi file is configured, run an in-process mock
+        // server instead of spawning a child. Same lifecycle plumbing as the
+        // static-folder branch: bind synchronously so port-in-use surfaces
+        // as a hard error, and stash the graceful-shutdown sender in
+        // app.static_shutdown so stop_app/delete_app tear it down cleanly.
+        if let Some(ref swagger) = entry.swagger_file {
+            let abs_swagger = if Path::new(swagger).is_absolute() {
+                PathBuf::from(swagger)
+            } else {
+                Path::new(cwd).join(swagger)
+            };
+            if !abs_swagger.exists() {
+                let mut state = self.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&id) {
+                    app.status = "stopped".into();
+                }
+                return Err(format!("Swagger file not found: {}", abs_swagger.display()));
+            }
+            let router = crate::apimock::build(&abs_swagger.to_string_lossy())
+                .map_err(|e| {
+                    let mut state = self.state.lock().unwrap();
+                    if let Some(app) = state.apps.get_mut(&id) {
+                        app.status = "stopped".into();
+                    }
+                    e
+                })?;
+
+            let port = entry.port.unwrap_or(3000);
+            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
+                .await
+                .map_err(|e| format!("Failed to bind port {}: {}", port, e))?;
+
+            let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+            let logs_c = logs.clone();
+            let mgr_c = Arc::clone(self);
+            let app_id = id;
+            let swagger_path_str = abs_swagger.to_string_lossy().to_string();
+
+            self.rt_handle.spawn(async move {
+                let start_msg = format!(
+                    "API Mock at http://127.0.0.1:{}  Swagger UI: http://127.0.0.1:{}/  Spec: {}",
+                    port, port, swagger_path_str
+                );
+                mgr_c.append_log(app_id, &start_msg);
+                logs_c.push(stamped(&start_msg));
+
+                let shutdown_was_requested = std::sync::Arc::new(AtomicBool::new(false));
+                let shutdown_flag = shutdown_was_requested.clone();
+                axum::serve(listener, router)
+                    .with_graceful_shutdown(async move {
+                        let _ = shutdown_rx.await;
+                        shutdown_flag.store(true, Ordering::SeqCst);
+                    })
+                    .await.ok();
+
+                if shutdown_was_requested.load(Ordering::SeqCst) {
+                    return;
+                }
+                let mut state = mgr_c.state.lock().unwrap();
+                if let Some(app) = state.apps.get_mut(&app_id) {
+                    if app.static_shutdown.is_none() {
+                        app.status = "stopped".into();
+                        app.started_at = None;
+                    }
+                }
+            });
+
+            let mut state = self.state.lock().unwrap();
+            if let Some(app) = state.apps.get_mut(&id) {
+                if app.cancel_requested.load(Ordering::SeqCst) {
+                    drop(state);
+                    drop(shutdown_tx);
+                    return Err("Cancelled by user".into());
+                }
+                app.status = "running".into();
+                app.static_shutdown = Some(shutdown_tx);
+                app.pid = None;
+                app.started_at = Some(now_secs());
+            }
+            self.log_server(&format!("Started API mock: {} on port {}", entry.name, port));
+            return Ok(());
+        }
 
         // Static serving mode
         if let Some(ref static_dir) = entry.static_dir {

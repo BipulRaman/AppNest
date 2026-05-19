@@ -151,6 +151,8 @@ struct AppReq {
     #[serde(default)]
     script_file: Option<String>,
     #[serde(default)]
+    swagger_file: Option<String>,
+    #[serde(default)]
     color: Option<String>,
 }
 
@@ -189,7 +191,11 @@ fn validate_app_req(body: &AppReq) -> Result<(), &'static str> {
     if body.name.trim().is_empty() {
         return Err("Name is required");
     }
-    if body.project_dir.trim().is_empty() {
+    // API Mock mode only needs the swagger file — project_dir is optional
+    // because the user often just wants to point at a spec sitting anywhere
+    // on disk without registering a "project folder".
+    let is_apimock = body.swagger_file.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    if !is_apimock && body.project_dir.trim().is_empty() {
         return Err("Project directory is required");
     }
     if body.project_type.trim().is_empty() {
@@ -232,6 +238,7 @@ async fn add_app(State(mgr): State<Arc<AppManager>>, Json(body): Json<AppReq>) -
         env_vars: body.env_vars,
         auto_start: body.auto_start,
         script_file: body.script_file,
+        swagger_file: body.swagger_file,
         order: 0,
         color: body.color.filter(|s| !s.is_empty()),
     };
@@ -282,6 +289,7 @@ async fn update_app(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>, Jso
         env_vars: body.env_vars,
         auto_start: body.auto_start,
         script_file: body.script_file,
+        swagger_file: body.swagger_file,
         order: 0,
         color: body.color.filter(|s| !s.is_empty()),
     };
@@ -506,6 +514,8 @@ fn pick_file_blocking(ext: &str) -> Option<String> {
     let mut d = rfd::FileDialog::new().set_title("Select File");
     if ext == "script" {
         d = d.add_filter("Scripts", &["ps1", "bat", "cmd", "sh"]);
+    } else if ext == "swagger" {
+        d = d.add_filter("Swagger / OpenAPI", &["json"]);
     }
     d.pick_file().map(|p| p.to_string_lossy().to_string())
 }
@@ -528,6 +538,7 @@ fn pick_file_blocking(ext: &str) -> Option<String> {
     // Finder picker greys out unrelated files, matching the rfd behavior.
     let of_type = match ext {
         "script" => r#" of type {"ps1","bat","cmd","sh"}"#,
+        "swagger" => r#" of type {"json"}"#,
         _ => "",
     };
     let script = format!(

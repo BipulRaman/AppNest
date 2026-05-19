@@ -125,6 +125,15 @@ async function pickScript() {
   }
 }
 
+async function pickSwagger() {
+  try {
+    const r = await api('/api/pick-file?ext=swagger');
+    if (r && r.path) document.getElementById('fSwagger').value = r.path;
+  } catch (e) {
+    toast('File picker failed: ' + e.message, 'error');
+  }
+}
+
 // ─── SVG Icons ──────────────────────────────────────
 const IC = {
   play:    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
@@ -607,7 +616,7 @@ async function deleteApp(id) {
 
 // ─── Add / Edit Form ────────────────────────────────
 const $form = document.getElementById('appForm');
-const ids = { id: 'fId', name: 'fName', type: 'fType', mode: 'fMode', dir: 'fDir', serve: 'fServe', port: 'fPort', static: 'fStatic', script: 'fScript', build: 'fBuild', env: 'fEnv', auto: 'fAuto', color: 'fColor' };
+const ids = { id: 'fId', name: 'fName', type: 'fType', mode: 'fMode', dir: 'fDir', serve: 'fServe', port: 'fPort', static: 'fStatic', script: 'fScript', swagger: 'fSwagger', build: 'fBuild', env: 'fEnv', auto: 'fAuto', color: 'fColor' };
 const $ = Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, document.getElementById(v)]));
 
 // Curated card-tint palette. Names MUST match `ALLOWED_COLORS` on the
@@ -663,6 +672,35 @@ function toggleServe() {
   const mode = $.serve.value;
   document.getElementById('fStaticWrap').classList.toggle('hidden', mode !== 'static');
   document.getElementById('fScriptWrap').classList.toggle('hidden', mode !== 'script');
+  document.getElementById('fSwaggerWrap').classList.toggle('hidden', mode !== 'apimock');
+
+  // API Mock only needs: name, type, port, swagger file. Everything else is
+  // meaningless (no build, no run command, no env, no project dir, no
+  // dev/release mode toggle) — hide those fields so the form only shows
+  // what actually drives the mock server.
+  const isMock = mode === 'apimock';
+  const hide = (el, on) => { if (el) el.classList.toggle('hidden', on); };
+  // Hide the whole .field wrapper, not just the input, so labels disappear too.
+  hide($.mode && $.mode.closest('.field'), isMock);
+  hide($.dir && $.dir.closest('.field'), isMock);
+  hide($.build && $.build.closest('.field'), isMock);
+  hide($.env && $.env.closest('.field'), isMock);
+}
+
+/// Filter the Serve Mode updateServeOptionsForType(); if (!$.id.value) applyPreset(); else toggleServeake sense for the
+/// currently-selected Type. `apimock` is a self-contained mock server and
+/// has no meaningful Command/Static/Script variant; every other preset is
+/// a real project and can't run as an apimock.
+function updateServeOptionsForType() {
+  const isMock = $.type.value === 'apimock';
+  const allowed = isMock ? ['apimock'] : ['command', 'static', 'script'];
+  for (const opt of $.serve.options) {
+    opt.hidden = !allowed.includes(opt.value);
+    opt.disabled = !allowed.includes(opt.value);
+  }
+  if (!allowed.includes($.serve.value)) {
+    $.serve.value = allowed[0];
+  }
 }
 
 $.type.onchange = () => { if (!$.id.value) applyPreset(); };
@@ -674,9 +712,11 @@ document.getElementById('btnAdd').onclick = () => {
   $.name.value = '';
   $.dir.value = '';
   $.script.value = '';
+  $.swagger.value = '';
   $.auto.checked = false;
   $.type.value = 'dotnet';
   setSelectedColor('');
+  updateServeOptionsForType();
   applyPreset();
   document.getElementById('modalTitle').textContent = 'New Application';
   document.getElementById('modal').classList.remove('hidden');
@@ -699,10 +739,12 @@ async function editApp(id) {
   if (a.runCommand) buildLines.push(a.runCommand);
   $.build.value = buildLines.join('\n');
   $.static.value = a.staticDir || '';
-  $.serve.value = a.scriptFile ? 'script' : a.staticDir ? 'static' : 'command';
+  $.serve.value = a.swaggerFile ? 'apimock' : a.scriptFile ? 'script' : a.staticDir ? 'static' : 'command';
   $.script.value = a.scriptFile || '';
+  $.swagger.value = a.swaggerFile || '';
   $.env.value = Object.entries(a.envVars || {}).map(([k, v]) => `${k}=${v}`).join('\n');
   $.auto.checked = !!a.autoStart;
+  updateServeOptionsForType();
   setSelectedColor(a.color || '');
   toggleServe();
   document.getElementById('modalTitle').textContent = 'Edit Application';
@@ -752,11 +794,20 @@ $form.onsubmit = async (e) => {
     runCommand: runCommand,
     staticDir: mode === 'static' ? ($.static.value.trim() || null) : null,
     scriptFile: mode === 'script' ? ($.script.value.trim() || null) : null,
+    swaggerFile: mode === 'apimock' ? ($.swagger.value.trim() || null) : null,
     port: port,
     envVars: parseEnv($.env.value),
     autoStart: $.auto.checked,
     color: $.color.value || null,
   };
+  // API Mock mode: the user only had to pick a swagger file. Derive a
+  // sensible project_dir from it so the rest of the app (logs, "Open
+  // Folder", etc.) still has a meaningful path to work with.
+  if (mode === 'apimock' && payload.swaggerFile && !payload.projectDir) {
+    const sep = payload.swaggerFile.includes('\\') ? '\\' : '/';
+    const idx = payload.swaggerFile.lastIndexOf(sep);
+    if (idx > 0) payload.projectDir = payload.swaggerFile.slice(0, idx);
+  }
   try {
     if ($.id.value) {
       await api(`${API}/${$.id.value}`, 'PUT', payload);
