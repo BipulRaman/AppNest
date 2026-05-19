@@ -472,26 +472,26 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 }
 
 /* ANSI colors inside .terminal */
-.terminal .ansi-bold{font-weight:700}
-.terminal .ansi-dim{opacity:.7}
-.terminal .ansi-italic{font-style:italic}
-.terminal .ansi-underline{text-decoration:underline}
-.terminal .ansi-black{color:#000}
-.terminal .ansi-red{color:#f87171}
-.terminal .ansi-green{color:#4ade80}
-.terminal .ansi-yellow{color:#fbbf24}
-.terminal .ansi-blue{color:#60a5fa}
-.terminal .ansi-magenta{color:#e879f9}
-.terminal .ansi-cyan{color:#5eead4}
-.terminal .ansi-white{color:#e5e7eb}
-.terminal .ansi-bright-black{color:#6b7280}
-.terminal .ansi-bright-red{color:#fca5a5}
-.terminal .ansi-bright-green{color:#86efac}
-.terminal .ansi-bright-yellow{color:#fde047}
-.terminal .ansi-bright-blue{color:#93c5fd}
-.terminal .ansi-bright-magenta{color:#f0abfc}
-.terminal .ansi-bright-cyan{color:#99f6e4}
-.terminal .ansi-bright-white{color:#f3f4f6}
+.terminal .ansi-bold, .log-preview .ansi-bold{font-weight:700}
+.terminal .ansi-dim, .log-preview .ansi-dim{opacity:.7}
+.terminal .ansi-italic, .log-preview .ansi-italic{font-style:italic}
+.terminal .ansi-underline, .log-preview .ansi-underline{text-decoration:underline}
+.terminal .ansi-black, .log-preview .ansi-black{color:#000}
+.terminal .ansi-red, .log-preview .ansi-red{color:#f87171}
+.terminal .ansi-green, .log-preview .ansi-green{color:#4ade80}
+.terminal .ansi-yellow, .log-preview .ansi-yellow{color:#fbbf24}
+.terminal .ansi-blue, .log-preview .ansi-blue{color:#60a5fa}
+.terminal .ansi-magenta, .log-preview .ansi-magenta{color:#e879f9}
+.terminal .ansi-cyan, .log-preview .ansi-cyan{color:#5eead4}
+.terminal .ansi-white, .log-preview .ansi-white{color:#e5e7eb}
+.terminal .ansi-bright-black, .log-preview .ansi-bright-black{color:#6b7280}
+.terminal .ansi-bright-red, .log-preview .ansi-bright-red{color:#fca5a5}
+.terminal .ansi-bright-green, .log-preview .ansi-bright-green{color:#86efac}
+.terminal .ansi-bright-yellow, .log-preview .ansi-bright-yellow{color:#fde047}
+.terminal .ansi-bright-blue, .log-preview .ansi-bright-blue{color:#93c5fd}
+.terminal .ansi-bright-magenta, .log-preview .ansi-bright-magenta{color:#f0abfc}
+.terminal .ansi-bright-cyan, .log-preview .ansi-bright-cyan{color:#99f6e4}
+.terminal .ansi-bright-white, .log-preview .ansi-bright-white{color:#f3f4f6}
 
 /* Log toolbar (search + follow indicator) */
 .log-toolbar{
@@ -510,10 +510,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .log-search-count{
   position:absolute;right:8px;font-size:11px;color:var(--text-muted);pointer-events:none;
 }
-.terminal mark.log-match{
+.terminal mark.log-match, .log-preview mark.log-match{
   background:var(--orange);color:#000;border-radius:2px;padding:0 1px;
 }
-.terminal mark.log-match.active{background:var(--accent);color:#fff}
+.terminal mark.log-match.active, .log-preview mark.log-match.active{background:var(--accent);color:#fff}
 
 .follow-pill{
   display:inline-flex;align-items:center;gap:5px;
@@ -532,26 +532,26 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
   display:inline-flex;align-items:center;gap:4px;
   font-variant-numeric:tabular-nums;color:var(--text-muted);
 }
-.terminal .log-err{
+.terminal .log-err, .log-preview .log-err{
   color:#f87171;
 }
-.terminal .log-warn{
+.terminal .log-warn, .log-preview .log-warn{
   color:#fbbf24;
 }
-.terminal .log-info{
+.terminal .log-info, .log-preview .log-info{
   color:#34d399;
 }
-.terminal .log-debug{
+.terminal .log-debug, .log-preview .log-debug{
   color:#6b7280;font-style:italic;
 }
-.terminal .log-url, .terminal .log-err .log-url, .terminal .log-warn .log-url, .terminal .log-debug .log-url{
+.terminal .log-url, .log-preview .log-url, .terminal .log-err, .log-preview .log-err .log-url, .terminal .log-warn, .log-preview .log-warn .log-url, .terminal .log-debug, .log-preview .log-debug .log-url{
   color:#5eead4;text-decoration:underline;
   cursor:pointer;
 }
-.terminal .log-url:hover{
+.terminal .log-url, .log-preview .log-url:hover{
   color:#99f6e4;
 }
-.terminal .log-ts, .terminal .log-err .log-ts, .terminal .log-warn .log-ts, .terminal .log-debug .log-ts{
+.terminal .log-ts, .log-preview .log-ts, .terminal .log-err, .log-preview .log-err .log-ts, .terminal .log-warn, .log-preview .log-warn .log-ts, .terminal .log-debug, .log-preview .log-debug .log-ts{
   color:#6b7280;
 }
 

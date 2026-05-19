@@ -1404,8 +1404,11 @@ async function refreshPreview(id) {
   if (!el) return;
   try {
     const d = await api(`${API}/${id}/logs`);
-    const buildRaw = stripAnsi(d.buildLogs || '').trim();
-    const runRaw = stripAnsi(d.logs || '').trim();
+    // Keep ANSI escapes intact and run them through the same renderer as
+    // the full Logs modal so the inline snippet shows colors, timestamps
+    // styling, clickable URLs, and severity classes consistently.
+    const buildRaw = (d.buildLogs || '').replace(/\s+$/, '');
+    const runRaw = (d.logs || '').replace(/\s+$/, '');
     const parts = [];
     if (buildRaw) parts.push(buildRaw);
     if (runRaw) parts.push(runRaw);
@@ -1414,7 +1417,7 @@ async function refreshPreview(id) {
     const lines = raw.split('\n');
     const tail = lines.slice(-6).join('\n');
     const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
-    el.textContent = tail;
+    el.innerHTML = linkifyUrls(tail);
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
   } catch (e) {
     el.innerHTML = '<span class="empty">(failed to load)</span>';
