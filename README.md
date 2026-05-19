@@ -6,6 +6,8 @@ Stop juggling terminals. One app to build, host, and watch them all.
 
 **Single small native executable. No runtime dependencies. System tray on Windows. Built with Rust — runs on Windows, macOS, and Linux.**
 
+> 🌐 **Looking for the product website?** Visit **[bipul.in/AppNest](https://bipul.in/AppNest)** for downloads, screenshots, and the latest release. This repository is for the source code, issues, and contributions.
+
 > ⚠️ **Platform status**
 > - **Windows** — stable, fully tested, daily-driven.
 > - **macOS & Linux** — **experimental / under active development.** Builds are produced on every release, but they have not been through the same real-world testing as the Windows build. Expect rough edges: no system-tray integration yet (the app runs in the foreground — `Ctrl+C` to quit), native file-dialog behavior may vary between desktop environments, and some paths/permissions corner cases are still being worked out. Please try it, and [file an issue](../../issues) for anything that breaks.
