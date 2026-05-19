@@ -257,9 +257,18 @@ async function loadApps() {
   if (!apps.length) {
     $list.innerHTML = `
       <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        </div>
         <h3>No applications yet</h3>
-        <p>Click "New Application" to add your first project.</p>
+        <p>Add your first project to start managing it from the AppNest dashboard.</p>
+        <button type="button" class="btn btn-accent btn-lg" id="emptyAdd">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Application
+        </button>
       </div>`;
+    const $emptyAdd = document.getElementById('emptyAdd');
+    if ($emptyAdd) $emptyAdd.addEventListener('click', () => document.getElementById('btnAdd')?.click());
     // Nothing to preview when the list is empty — stop the polling timer.
     if (expandedPreviews.size) {
       expandedPreviews.clear();

@@ -175,10 +175,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .chip-dot.stopped{background:var(--border-hover)}
 
 .empty-state{
-  text-align:center;padding:80px 20px;color:var(--text-muted);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;gap:14px;color:var(--text-muted);
+  min-height:calc(100vh - 260px);padding:40px 20px;
 }
-.empty-state h3{font-size:16px;font-weight:600;color:var(--text-secondary);margin-bottom:4px}
-.empty-state p{font-size:13px}
+.empty-state .empty-icon{
+  width:72px;height:72px;display:flex;align-items:center;justify-content:center;
+  border-radius:50%;background:var(--bg-subtle);color:var(--accent);
+  border:1px solid var(--border);margin-bottom:4px;
+}
+.empty-state .empty-icon svg{width:36px;height:36px}
+.empty-state h3{font-size:18px;font-weight:600;color:var(--text);margin:0}
+.empty-state p{font-size:13px;max-width:360px;margin:0}
+.empty-state .btn{margin-top:6px}
+.btn-lg{padding:10px 18px;font-size:14px}
+.btn-lg svg{width:16px;height:16px}
 
 /* ─── Row ─────────────────────────────────────────── */
 .app-row{
