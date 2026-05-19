@@ -866,27 +866,29 @@ struct GhAsset {
 }
 
 /// Returns true if the given GitHub-release asset filename matches the binary
-/// we should offer for download on the current platform. We accept both the
-/// new per-OS naming (`appnest-windows-x86_64.exe`, `appnest-macos-arm64.tar.gz`,
-/// …) and the legacy Windows name (`appnest.exe`) so releases cut before the
-/// cross-platform build landed still resolve for existing Windows users.
+/// we should offer for download on the current platform. We match by the
+/// platform suffix so the assertion works whether the asset is named
+/// `appnest-windows-x86_64.exe` (unversioned, legacy) or
+/// `appnest-1.1.0-windows-x86_64.exe` (versioned, current release pipeline).
+/// We also accept the very old plain `appnest.exe` for releases cut before
+/// the cross-platform build landed.
 fn is_platform_asset(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     #[cfg(target_os = "windows")]
     {
-        n == "appnest.exe" || n == "appnest-windows-x86_64.exe"
+        n == "appnest.exe" || n.ends_with("windows-x86_64.exe")
     }
     #[cfg(target_os = "linux")]
     {
-        n == "appnest-linux-x86_64.tar.gz"
+        n.ends_with("linux-x86_64.tar.gz")
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        n == "appnest-macos-arm64.tar.gz"
+        n.ends_with("macos-arm64.tar.gz")
     }
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
-        n == "appnest-macos-x86_64.tar.gz"
+        n.ends_with("macos-x86_64.tar.gz")
     }
     #[cfg(not(any(
         target_os = "windows",

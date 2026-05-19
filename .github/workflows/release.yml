@@ -197,14 +197,32 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
+          ver="${BUILD_TAG#v}"
           find artifacts -type f \( -name 'appnest' -o -name 'appnest.exe' -o -name '*.tar.gz' \) \
             -exec cp {} dist/ \;
+
+          # Inject the version into every asset filename so it's obvious from
+          # the release page which build you're downloading. The in-app
+          # updater matches assets by platform suffix (see is_platform_asset
+          # in server.rs), so the leading version segment is fine.
+          # Windows exe → appnest-<ver>-windows-x86_64.exe
           if [ -f dist/appnest.exe ]; then
-            mv dist/appnest.exe dist/appnest-windows-x86_64.exe
+            mv dist/appnest.exe "dist/appnest-${ver}-windows-x86_64.exe"
           fi
+          # Drop the raw `appnest` binary; each per-OS .tar.gz already carries it.
           if [ -f dist/appnest ]; then
             rm dist/appnest
           fi
+          # *.tar.gz → prepend version: appnest-linux-x86_64.tar.gz → appnest-<ver>-linux-x86_64.tar.gz
+          for f in dist/appnest-*.tar.gz; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            new="appnest-${ver}-${base#appnest-}"
+            if [ "$base" != "$new" ]; then
+              mv "$f" "dist/$new"
+            fi
+          done
+
           ls -la dist
 
       - name: Generate checksums
