@@ -319,12 +319,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .dialog-lg .dialog-head{flex-shrink:0}
 .dialog-lg .dialog-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
-/* Keep the add/edit dialog at its tallest layout so toggling Serve Mode
- * (which hides/shows several fields) doesn't snap the dialog height and
- * make the surrounding UI flicker. The value covers the worst-case
- * Command-mode form with build textarea + env textarea + all rows. */
-#modal #appForm{min-height:600px}
-
 /* Confirm dialog */
 .confirm-title{font-size:15px;font-weight:700;margin-bottom:6px}
 .confirm-message{font-size:13px;color:var(--text-secondary);line-height:1.55}

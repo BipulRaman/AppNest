@@ -159,13 +159,59 @@ async function loadPresets() {
   $type.innerHTML = '';
   presets = {};
   for (const p of list) {
-    presets[p.value] = { dev: p.dev, release: p.release };
+    presets[p.value] = { dev: p.dev, release: p.release, label: p.label };
     const opt = document.createElement('option');
     opt.value = p.value;
     opt.textContent = p.label;
     $type.appendChild(opt);
   }
 }
+
+// Type chips were removed in favour of a regular <select>. Keep a no-op
+// sync helper so the rest of the form code (which calls syncTypeChips
+// after editing/adding) doesn't need a guard at every call site.
+function syncTypeChips() {}
+
+// ─── Mode segmented (Dev / Release) ─────────────────
+function syncModeSeg() {
+  document.querySelectorAll('#fModeSeg .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.val === $.mode.value);
+  });
+}
+document.querySelectorAll('#fModeSeg .seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $.mode.value = btn.dataset.val;
+    syncModeSeg();
+    if (!$.id.value) applyPreset();
+  });
+});
+
+// ─── Serve mode chip-radios ─────────────────────────
+function syncServeChips() {
+  document.querySelectorAll('#fServeChips .chip-radio').forEach(b => {
+    b.classList.toggle('active', b.dataset.val === $.serve.value);
+  });
+}
+document.querySelectorAll('#fServeChips .chip-radio').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $.serve.value = btn.dataset.val;
+    syncServeChips();
+    toggleServe();
+  });
+});
+
+// ─── Advanced (collapsed) toggle ────────────────────
+(function() {
+  const t = document.getElementById('fAdvancedToggle');
+  const p = document.getElementById('fAdvancedPanel');
+  if (!t || !p) return;
+  t.addEventListener('click', () => {
+    const open = !p.classList.contains('hidden');
+    p.classList.toggle('hidden', open);
+    t.setAttribute('aria-expanded', open ? 'false' : 'true');
+    t.classList.toggle('is-open', !open);
+  });
+})();
 
 // ─── Render App List ────────────────────────────────
 const $list = document.getElementById('appList');
@@ -670,30 +716,55 @@ function applyPreset() {
 
 function toggleServe() {
   const mode = $.serve.value;
-  document.getElementById('fStaticWrap').classList.toggle('hidden', mode !== 'static');
-  document.getElementById('fScriptWrap').classList.toggle('hidden', mode !== 'script');
-  document.getElementById('fSwaggerWrap').classList.toggle('hidden', mode !== 'apimock');
-
-  // API Mock only needs: name, type, port, swagger file. Everything else is
-  // meaningless (no build, no run command, no env, no project dir, no
-  // dev/release mode toggle) — hide those fields so the form only shows
-  // what actually drives the mock server.
   const isMock = mode === 'apimock';
   const hide = (el, on) => { if (el) el.classList.toggle('hidden', on); };
-  // Hide the whole .field wrapper, not just the input, so labels disappear too.
-  hide($.mode && $.mode.closest('.field'), isMock);
-  hide($.dir && $.dir.closest('.field'), isMock);
-  hide($.build && $.build.closest('.field'), isMock);
-  hide($.env && $.env.closest('.field'), isMock);
+
+  // Static / Script / Swagger input slots in the second row.
+  hide(document.getElementById('fStaticWrap'), mode !== 'static');
+  hide(document.getElementById('fScriptWrap'), mode !== 'script');
+  hide(document.getElementById('fSwaggerWrap'), !isMock);
+
+  // API Mock layout: only Name + Type + Port + Swagger + Advanced are
+  // meaningful. Hide Mode, Project Directory, Build textarea, and Env
+  // textarea so the form only shows what actually drives the mock server.
+  hide(document.getElementById('fModeField'), isMock);
+  hide(document.getElementById('fDirField'), isMock);
+  hide(document.getElementById('fBuildField'), isMock);
+  hide(document.getElementById('fEnvField'), isMock);
+
+  // Prefill a sample static folder when Static mode is selected and the
+  // field is empty — pull whatever value the current preset declares
+  // (release first, then dev), falling back to "./dist" so the user has
+  // a sane default to edit rather than a blank input.
+  if (mode === 'static' && !$.static.value.trim()) {
+    const preset = presets[$.type.value];
+    const sample = (preset && preset.release && preset.release.static)
+      || (preset && preset.dev && preset.dev.static)
+      || './dist';
+    $.static.value = sample;
+  }
 }
 
-/// Filter the Serve Mode updateServeOptionsForType(); if (!$.id.value) applyPreset(); else toggleServeake sense for the
-/// currently-selected Type. `apimock` is a self-contained mock server and
-/// has no meaningful Command/Static/Script variant; every other preset is
-/// a real project and can't run as an apimock.
+/// Restrict the Serve Mode <select> to the modes the currently-selected
+/// preset actually declares (preset.dev.serve and preset.release.serve).
+/// For API Mock the only valid mode is `apimock`; every other preset is
+/// non-mock. If the current selection isn't in the allowed set, snap to
+/// the first allowed entry so submit never sends a mode the type doesn't
+/// support.
 function updateServeOptionsForType() {
   const isMock = $.type.value === 'apimock';
-  const allowed = isMock ? ['apimock'] : ['command', 'static', 'script'];
+  let allowed;
+  if (isMock) {
+    allowed = ['apimock'];
+  } else {
+    const preset = presets[$.type.value];
+    const set = new Set();
+    if (preset && preset.dev && preset.dev.serve) set.add(preset.dev.serve);
+    if (preset && preset.release && preset.release.serve) set.add(preset.release.serve);
+    if (set.size === 0) set.add('command');
+    // Stable display order regardless of preset key ordering.
+    allowed = ['command', 'static', 'script'].filter(m => set.has(m));
+  }
   for (const opt of $.serve.options) {
     opt.hidden = !allowed.includes(opt.value);
     opt.disabled = !allowed.includes(opt.value);
@@ -701,9 +772,14 @@ function updateServeOptionsForType() {
   if (!allowed.includes($.serve.value)) {
     $.serve.value = allowed[0];
   }
+  // If only one mode is allowed, hide the Serve Mode field entirely —
+  // the user has no choice to make, so showing a single locked option is
+  // just visual noise.
+  const serveField = document.getElementById('fServeField');
+  if (serveField) serveField.classList.toggle('hidden', allowed.length <= 1);
 }
 
-$.type.onchange = () => { if (!$.id.value) applyPreset(); };
+$.type.onchange = () => { updateServeOptionsForType(); if (!$.id.value) applyPreset(); else toggleServe(); };
 $.mode.onchange = () => { if (!$.id.value) applyPreset(); };
 $.serve.onchange = toggleServe;
 
@@ -715,6 +791,7 @@ document.getElementById('btnAdd').onclick = () => {
   $.swagger.value = '';
   $.auto.checked = false;
   $.type.value = 'dotnet';
+  $.mode.value = 'dev';
   setSelectedColor('');
   updateServeOptionsForType();
   applyPreset();
@@ -744,8 +821,8 @@ async function editApp(id) {
   $.swagger.value = a.swaggerFile || '';
   $.env.value = Object.entries(a.envVars || {}).map(([k, v]) => `${k}=${v}`).join('\n');
   $.auto.checked = !!a.autoStart;
-  updateServeOptionsForType();
   setSelectedColor(a.color || '');
+  updateServeOptionsForType();
   toggleServe();
   document.getElementById('modalTitle').textContent = 'Edit Application';
   document.getElementById('modal').classList.remove('hidden');

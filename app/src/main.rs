@@ -9,6 +9,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn main() {
+    // Mark the process as Per-Monitor-V2 DPI-aware BEFORE any GUI / dialog
+    // code runs. Without this, native pickers spawned by `rfd` (Open Folder,
+    // Open File) are bitmap-stretched by Windows on high-DPI displays and
+    // render visibly blurry. Must be done before the first dialog opens.
+    #[cfg(windows)]
+    enable_dpi_awareness();
+
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     let rt_handle = rt.handle().clone();
 
@@ -42,7 +49,20 @@ fn main() {
 }
 
 // ───────────────────────────── Windows: system tray ─────────────────────────────
-
+#[cfg(windows)]
+fn enable_dpi_awareness() {
+    // Prefer Per-Monitor-V2 (Win10 1703+). Falls back silently on older
+    // builds; in that case the dialog remains slightly soft but at least
+    // doesn't crash. We deliberately don't ship a side-by-side manifest
+    // for this — calling SetProcessDpiAwarenessContext at startup is
+    // equivalent and avoids the build-system complexity.
+    use windows_sys::Win32::UI::HiDpi::{
+        SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+}
 #[cfg(target_os = "windows")]
 fn run_with_tray(manager: Arc<AppManager>, rt_handle: tokio::runtime::Handle) {
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};

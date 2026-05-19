@@ -503,6 +503,8 @@ async fn pick_file(Query(q): Query<PickQ>) -> impl IntoResponse {
 
 #[cfg(not(target_os = "macos"))]
 fn pick_folder_blocking() -> Option<String> {
+    #[cfg(windows)]
+    let _guard = win_dialog_foreground::spawn();
     rfd::FileDialog::new()
         .set_title("Select Project Folder")
         .pick_folder()
@@ -511,6 +513,8 @@ fn pick_folder_blocking() -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn pick_file_blocking(ext: &str) -> Option<String> {
+    #[cfg(windows)]
+    let _guard = win_dialog_foreground::spawn();
     let mut d = rfd::FileDialog::new().set_title("Select File");
     if ext == "script" {
         d = d.add_filter("Scripts", &["ps1", "bat", "cmd", "sh"]);
@@ -518,6 +522,105 @@ fn pick_file_blocking(ext: &str) -> Option<String> {
         d = d.add_filter("Swagger / OpenAPI", &["json"]);
     }
     d.pick_file().map(|p| p.to_string_lossy().to_string())
+}
+
+// Windows: native pickers (rfd) inherit no parent because AppNest has no
+// app window — only a tray icon. With no owner, Windows places the dialog
+// in z-order based on which process currently owns the foreground, and
+// since the *browser* owns it when the user clicks "Browse" the dialog
+// can appear behind the browser window. Fix: launch a short-lived helper
+// thread that polls for any standard-dialog window belonging to this
+// process and force-brings it to the foreground using the SetWindowPos
+// TOPMOST → NOTOPMOST trick (the only reliable workaround that doesn't
+// require AppNest itself to already own the foreground).
+#[cfg(windows)]
+mod win_dialog_foreground {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, FindWindowExW, GetWindowThreadProcessId, IsWindowVisible,
+        SetForegroundWindow, SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_SHOWWINDOW,
+    };
+
+    /// Guard that stops the helper thread when dropped (i.e. when the
+    /// caller returns from the blocking pick_*_blocking call).
+    pub struct Guard {
+        stop: Arc<AtomicBool>,
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub fn spawn() -> Guard {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = stop.clone();
+        std::thread::Builder::new()
+            .name("appnest-dialog-foreground".into())
+            .spawn(move || {
+                let our_pid = unsafe { GetCurrentProcessId() };
+                // The standard Win32 dialog window class is "#32770".
+                let class: Vec<u16> = "#32770\0".encode_utf16().collect();
+                let mut last_promoted: HWND = 0;
+                // Poll up to ~3 s. The dialog usually appears within ~150 ms;
+                // we keep checking in case the user opens / closes child
+                // browse dialogs (e.g. Common Item dialog spawns sub-windows
+                // when navigating shell namespaces) so each gets promoted.
+                for _ in 0..60 {
+                    if stop_thread.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    let mut hwnd: HWND = 0;
+                    loop {
+                        hwnd = unsafe {
+                            FindWindowExW(0, hwnd, class.as_ptr(), std::ptr::null())
+                        };
+                        if hwnd == 0 {
+                            break;
+                        }
+                        let mut pid: u32 = 0;
+                        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+                        if pid != our_pid {
+                            continue;
+                        }
+                        if unsafe { IsWindowVisible(hwnd) } == 0 {
+                            continue;
+                        }
+                        if hwnd == last_promoted {
+                            continue;
+                        }
+                        // TOPMOST → NOTOPMOST flicker is the only documented
+                        // workaround that reliably bypasses the Windows
+                        // foreground-stealing prevention rules.
+                        unsafe {
+                            BringWindowToTop(hwnd);
+                            SetWindowPos(
+                                hwnd,
+                                HWND_TOPMOST,
+                                0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                            );
+                            SetWindowPos(
+                                hwnd,
+                                HWND_NOTOPMOST,
+                                0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                            );
+                            let _ = SetForegroundWindow(hwnd);
+                        }
+                        last_promoted = hwnd;
+                    }
+                }
+            })
+            .ok();
+        Guard { stop }
+    }
 }
 
 #[cfg(target_os = "macos")]

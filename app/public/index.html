@@ -121,27 +121,26 @@
         <div class="field-row">
           <div class="field" style="width:140px">
             <label for="fType">Type</label>
-            <select id="fType">
-            </select>
+            <select id="fType"></select>
           </div>
-          <div class="field" style="width:120px">
+          <div class="field" style="width:120px" id="fModeField">
             <label for="fMode">Mode</label>
             <select id="fMode">
               <option value="dev">Dev</option>
               <option value="release">Release</option>
             </select>
           </div>
-          <div class="field grow">
+          <div class="field grow" id="fDirField">
             <label for="fDir">Project Directory</label>
             <div class="field-with-btn">
-              <input type="text" id="fDir" required/>
+              <input type="text" id="fDir"/>
               <button type="button" class="browse-btn" onclick="pickFolder('fDir')">Browse</button>
             </div>
           </div>
         </div>
 
         <div class="field-row">
-          <div class="field" style="width:140px">
+          <div class="field" style="width:140px" id="fServeField">
             <label for="fServe">Serve Mode</label>
             <select id="fServe">
               <option value="command">Command</option>
@@ -156,7 +155,7 @@
           </div>
           <div class="field grow hidden" id="fStaticWrap">
             <label for="fStatic">Static Folder</label>
-            <input type="text" id="fStatic"/>
+            <input type="text" id="fStatic" placeholder="./dist"/>
           </div>
           <div class="field grow hidden" id="fScriptWrap">
             <label for="fScript">Script File</label>
@@ -174,12 +173,12 @@
           </div>
         </div>
 
-        <div class="field">
+        <div class="field" id="fBuildField">
           <label for="fBuild">Build &amp; Run Command <span class="field-hint">one command per line — last line is the run command</span></label>
           <textarea id="fBuild" rows="4"></textarea>
         </div>
 
-        <div class="field">
+        <div class="field" id="fEnvField">
           <label for="fEnv">Environment Variables <span class="field-hint">KEY=VALUE per line</span></label>
           <textarea id="fEnv" rows="2"></textarea>
         </div>
