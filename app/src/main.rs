@@ -129,37 +129,68 @@ fn run_with_tray(manager: Arc<AppManager>, rt_handle: tokio::runtime::Handle) {
 
 #[cfg(target_os = "windows")]
 fn create_tray_icon() -> tray_icon::Icon {
-    let s = 32u32;
+    // Renders the same Feather "settings" gear used as the web favicon
+    // (outlined gear + center circle, indigo #6366f1, transparent bg) so
+    // the tray / launcher icon matches the in-app branding.
+    let s: u32 = 32;
+    let center = (s as f32 - 1.0) / 2.0;
     let mut rgba = vec![0u8; (s * s * 4) as usize];
-    let c = 15.5f32;
+
+    // Gear geometry (in pixel units, 32×32 canvas):
+    //   r(θ) = base + amp * pulse(8θ)   — 8 teeth, smoothed square wave
+    let base_r = 10.5f32;       // outer radius between teeth
+    let tooth_amp = 2.0f32;     // tooth height
+    let stroke_half = 0.9f32;   // half stroke width
+    let hub_r = 4.0f32;         // center circle radius (3/24 * 32 ≈ 4)
+
+    // 4×4 supersampling for smooth edges.
+    const SS: u32 = 4;
+    let ss_f = SS as f32;
+    let samples = (SS * SS) as f32;
 
     for y in 0..s {
         for x in 0..s {
-            let i = ((y * s + x) * 4) as usize;
-            let dx = x as f32 - c;
-            let dy = y as f32 - c;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let angle = dy.atan2(dx);
+            let mut coverage = 0.0f32;
+            for sy in 0..SS {
+                for sx in 0..SS {
+                    let px = x as f32 + (sx as f32 + 0.5) / ss_f - 0.5 - center;
+                    let py = y as f32 + (sy as f32 + 0.5) / ss_f - 0.5 - center;
+                    let dist = (px * px + py * py).sqrt();
+                    let angle = py.atan2(px);
 
-            // Gear: ring with 8 teeth + center hub
-            let tooth = (angle * 4.0).cos(); // 8 teeth
-            let outer = 13.0 + tooth.max(0.0) * 2.5;
-            let inner = 8.0;
-            let hub = 4.0;
+                    // Smoothed square wave with 8 cycles (8 teeth), in [0, 1].
+                    let raw = (angle * 8.0).cos();
+                    let pulse = smoothstep(-0.25, 0.25, raw);
+                    let curve_r = base_r + tooth_amp * pulse;
 
-            let in_shape = (dist <= outer && dist >= inner) || dist <= hub;
-            if in_shape {
-                let edge = if dist >= inner {
-                    (outer - dist).min(dist - inner)
-                } else {
-                    hub - dist
-                };
-                let a = (edge.clamp(0.0, 1.5) / 1.5 * 255.0) as u8;
-                rgba[i..i + 4].copy_from_slice(&[99, 102, 241, a]);
+                    // Distance from the gear outline (signed → unsigned).
+                    let d_gear = (dist - curve_r).abs();
+                    // Distance from the center circle outline.
+                    let d_hub = (dist - hub_r).abs();
+                    let d = d_gear.min(d_hub);
+
+                    if d <= stroke_half + 0.5 {
+                        // Linear edge falloff for AA.
+                        let cov = (stroke_half + 0.5 - d).clamp(0.0, 1.0);
+                        coverage += cov;
+                    }
+                }
+            }
+            let alpha = (coverage / samples * 255.0).clamp(0.0, 255.0) as u8;
+            if alpha > 0 {
+                let i = ((y * s + x) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&[99, 102, 241, alpha]);
             }
         }
     }
     tray_icon::Icon::from_rgba(rgba, s, s).expect("Failed to create icon")
+}
+
+#[cfg(target_os = "windows")]
+#[inline]
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 // ───────────────────────────── macOS / Linux: headless ─────────────────────────────
