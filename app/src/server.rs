@@ -1081,6 +1081,59 @@ fn platform_bin_name() -> &'static str {
     #[cfg(not(windows))] { "appnest" }
 }
 
+/// If the running executable's filename embeds the *previous* version (the
+/// convention used by GitHub-release downloads — `appnest-1.1.1-windows-x86_64.exe`,
+/// `appnest-1.1.1-linux-x86_64`, …), rename the on-disk file so the version
+/// segment matches `new_version`. Returns the path that should be used to
+/// respawn the process.
+///
+/// Files that don't match the `appnest-<digits.digits…>-` prefix are left
+/// alone (e.g. a stable `appnest.exe` install). Errors are returned to the
+/// caller so they can be logged and the un-renamed path used as a fallback.
+fn rename_versioned_exe(new_version: &str) -> std::io::Result<std::path::PathBuf> {
+    let cur = std::env::current_exe()?;
+    let stem = cur
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let ext = cur.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+    let Some(after_prefix) = stem.strip_prefix("appnest-") else {
+        return Ok(cur);
+    };
+    let Some(dash) = after_prefix.find('-') else {
+        return Ok(cur);
+    };
+    let old_ver = &after_prefix[..dash];
+    // Only rewrite if the first segment really looks like a version. This
+    // avoids molesting names like `appnest-test-build.exe`.
+    if old_ver.is_empty() || !old_ver.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return Ok(cur);
+    }
+    if old_ver == new_version {
+        return Ok(cur);
+    }
+    let rest = &after_prefix[dash..]; // includes leading '-'
+    let new_stem = format!("appnest-{}{}", new_version, rest);
+    let new_name = if ext.is_empty() {
+        new_stem
+    } else {
+        format!("{}.{}", new_stem, ext)
+    };
+    let new_path = cur.with_file_name(&new_name);
+    if new_path == cur {
+        return Ok(cur);
+    }
+    // NTFS allows renaming a running executable; POSIX always does. If the
+    // target already exists (left over from a previous attempt), bail out
+    // rather than clobber it.
+    if new_path.exists() {
+        return Ok(cur);
+    }
+    std::fs::rename(&cur, &new_path)?;
+    Ok(new_path)
+}
+
 async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let asset_target = platform_asset_substring();
@@ -1114,11 +1167,39 @@ async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
                 "update: replaced binary on disk, now v{} — restarting",
                 new_version
             ));
+
+            // If the user launched a release-page download whose filename
+            // encodes the old version (e.g. `appnest-1.1.1-windows-x86_64.exe`),
+            // rename the file on disk so the filename stays truthful. NTFS
+            // allows renaming a currently-running executable. We still spawn
+            // the *new* path on restart so the next self-check sees the
+            // correct name. Any taskbar / Start-menu shortcut pinned to the
+            // old name will need to be re-pinned — this is the deliberate
+            // trade-off of Option A.
+            let restart_path = match rename_versioned_exe(&new_version) {
+                Ok(p) => {
+                    if let Ok(orig) = std::env::current_exe() {
+                        if p != orig {
+                            manager.log_server(&format!(
+                                "update: renamed {} → {}",
+                                orig.display(),
+                                p.display()
+                            ));
+                        }
+                    }
+                    p
+                }
+                Err(e) => {
+                    manager.log_server(&format!("update: rename skipped: {}", e));
+                    std::env::current_exe().unwrap_or_default()
+                }
+            };
+
             // Give the HTTP response time to flush, then stop all managed
-            // children and relaunch ourselves from the same path. On
-            // Windows the running .exe was atomically renamed to *.old by
-            // self_replace, so spawning current_exe() picks up the *new*
-            // binary that was moved into place.
+            // children and relaunch ourselves. On Windows the running .exe
+            // was atomically renamed to *.old by self_replace, so spawning
+            // the (possibly renamed) path picks up the *new* binary that
+            // was moved into place.
             let mgr = manager.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(750)).await;
@@ -1126,9 +1207,7 @@ async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
                 // Brief grace period for OS to reap child processes before
                 // the new instance tries to bind the same port.
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(exe).spawn();
-                }
+                let _ = std::process::Command::new(&restart_path).spawn();
                 std::process::exit(0);
             });
             Json(OkResp { ok: true, error: Some(format!("Updated to v{}", new_version)) })
