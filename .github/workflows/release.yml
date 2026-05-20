@@ -115,11 +115,6 @@ jobs:
           echo "Stamped version: $ver"
           grep -E '^(name|version)' app/Cargo.toml | head -n2
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
       - name: Configure MinGW (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -136,9 +131,7 @@ jobs:
         shell: pwsh
         run: |
           # Expose the MSYS2 MinGW64 bin dir so cargo/rustc and embed-resource
-          # pick up the matching 64-bit gcc, ld, ar AND windres. Using a
-          # mismatched (32-bit) windres produces a COFF object that the
-          # x86_64 linker rejects with "file format not recognized".
+          # pick up the matching 64-bit gcc, ld, ar AND windres.
           $mingwBin = "${env:RUNNER_TEMP}\msys64\mingw64\bin"
           if (-not (Test-Path $mingwBin)) { $mingwBin = "D:\a\_temp\msys64\mingw64\bin" }
           if (-not (Test-Path $mingwBin)) { $mingwBin = "C:\msys64\mingw64\bin" }
@@ -146,6 +139,25 @@ jobs:
           Write-Host "Using MinGW64 from: $mingwBin"
           & "$mingwBin\gcc.exe" --version
           & "$mingwBin\windres.exe" --version
+
+      # IMPORTANT: install Rust with a GNU *host*, not the runner's default
+      # MSVC host. `embed-resource` picks its MSVC-vs-GNU code path at *build
+      # script compile time* using the host's `target_env`. If the host is
+      # MSVC, it shells out to RC.EXE and produces a real MSVC `.lib`, which
+      # the mingw `ld` cannot read ("file format not recognized"). Forcing a
+      # `*-pc-windows-gnu` host makes embed-resource use windres+ar instead.
+      - name: Install Rust (Windows, GNU host)
+        if: runner.os == 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          targets: ${{ matrix.target }}
+
+      - name: Install Rust (non-Windows)
+        if: runner.os != 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
