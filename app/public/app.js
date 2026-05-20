@@ -1333,6 +1333,63 @@ async function checkForUpdates(manual = false) {
       try { await api('/api/update-open', 'POST', { url: info.release_url }); }
       catch (err) { toast('Failed to open release page: ' + err.message, 'error'); }
     };
+    const installBtn = document.getElementById('btnInstallUpdate');
+    if (installBtn) installBtn.onclick = async () => {
+      if (!confirm(`Install version ${info.latest}?\n\nAll running apps will be stopped and AppNest will restart automatically.`)) return;
+      installBtn.disabled = true;
+      const openBtn2 = document.getElementById('btnOpenUpdate');
+      if (openBtn2) openBtn2.disabled = true;
+      const txt = document.getElementById('updateBannerText');
+      if (txt) txt.textContent = `Downloading ${info.latest}…`;
+      try {
+        const res = await api('/api/update-apply', 'POST', {});
+        if (!res || res.ok !== true) {
+          const msg = (res && res.error) || 'unknown error';
+          installBtn.disabled = false;
+          if (openBtn2) openBtn2.disabled = false;
+          if (txt) {
+            // Show the full error verbatim so the user can copy it for IT.
+            // Truncating here hides the useful bit (proxy 403, cert error,
+            // "Access is denied. (os error 5)", Defender quarantine, …).
+            txt.textContent = `Update failed: ${msg}`;
+            txt.title = msg;
+          }
+          // Also expose a one-click copy so users don't have to select
+          // text inside a banner.
+          let copyBtn = document.getElementById('btnCopyUpdateError');
+          if (!copyBtn) {
+            copyBtn = document.createElement('button');
+            copyBtn.id = 'btnCopyUpdateError';
+            copyBtn.className = 'btn btn-secondary btn-sm';
+            copyBtn.textContent = 'Copy error';
+            installBtn.parentNode.insertBefore(copyBtn, installBtn.nextSibling);
+          }
+          copyBtn.onclick = async () => {
+            try { await navigator.clipboard.writeText(msg); toast('Error copied', 'success'); }
+            catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+          };
+          toast('Update failed — see banner for details', 'error');
+          return;
+        }
+        if (txt) txt.textContent = `Installed ${info.latest}. Restarting AppNest…`;
+        toast('Update installed — restarting…', 'success');
+        // Poll for the new instance coming back up, then reload.
+        const started = Date.now();
+        const probe = setInterval(async () => {
+          if (Date.now() - started > 30000) { clearInterval(probe); return; }
+          try {
+            const r = await fetch('/api/update-check', { cache: 'no-store' });
+            if (r.ok) { clearInterval(probe); location.reload(); }
+          } catch (e) { /* server still down, keep polling */ }
+        }, 1000);
+      } catch (err) {
+        installBtn.disabled = false;
+        if (openBtn2) openBtn2.disabled = false;
+        const msg = (err && err.message) || String(err);
+        if (txt) { txt.textContent = `Update failed: ${msg}`; txt.title = msg; }
+        toast('Update failed: ' + msg, 'error');
+      }
+    };
     const dismissBtn = document.getElementById('btnDismissUpdate');
     if (dismissBtn) dismissBtn.onclick = () => {
       banner.classList.add('hidden');

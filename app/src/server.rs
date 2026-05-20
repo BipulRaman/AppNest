@@ -61,6 +61,7 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/apps/:id/open-terminal", post(open_terminal))
         .route("/api/update-check", get(check_update))
         .route("/api/update-open", post(open_update_page))
+        .route("/api/update-apply", post(apply_update))
         .route("/api/logs", get(get_server_logs))
         .fallback(static_handler)
         .layer(middleware::from_fn(require_csrf_header))
@@ -1046,4 +1047,100 @@ fn is_allowed_update_url(target: &str) -> bool {
         if s == ".." || s == "." { return false; }
     }
     true
+}
+
+// ───────────────────────────── In-app self-update ─────────────────────────────
+//
+// `/api/update-apply` downloads the GitHub release asset matching the current
+// platform, replaces the running executable in-place (via the `self_update`
+// crate, which uses `self_replace` under the hood — safe to do while the
+// process is running), then stops all managed child apps and respawns the
+// new binary before exiting. The frontend is expected to surface progress
+// and to handle the very brief window during which the HTTP port is down
+// between the old and new processes.
+
+fn platform_asset_substring() -> &'static str {
+    #[cfg(target_os = "windows")]
+    { "windows-x86_64.exe" }
+    #[cfg(target_os = "linux")]
+    { "linux-x86_64.tar.gz" }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    { "macos-arm64.tar.gz" }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    { "macos-x86_64.tar.gz" }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "linux",
+        all(target_os = "macos", any(target_arch = "aarch64", target_arch = "x86_64")),
+    )))]
+    { "" }
+}
+
+fn platform_bin_name() -> &'static str {
+    #[cfg(windows)] { "appnest.exe" }
+    #[cfg(not(windows))] { "appnest" }
+}
+
+async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let asset_target = platform_asset_substring();
+    if asset_target.is_empty() {
+        return err_resp("self-update not supported on this platform");
+    }
+
+    // The download + on-disk swap is fully blocking (network I/O + file
+    // rename), so off-load it from the async runtime.
+    let result: Result<String, String> = tokio::task::spawn_blocking(move || {
+        let updater = self_update::backends::github::Update::configure()
+            .repo_owner("BipulRaman")
+            .repo_name("AppNest")
+            .bin_name(platform_bin_name())
+            .target(asset_target)
+            .show_download_progress(false)
+            .show_output(false)
+            .no_confirm(true)
+            .current_version(&current)
+            .build()
+            .map_err(|e| format!("configure: {}", e))?;
+        let status = updater.update().map_err(|e| format!("update: {}", e))?;
+        Ok(status.version().to_string())
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("join: {}", e)));
+
+    match result {
+        Ok(new_version) => {
+            manager.log_server(&format!(
+                "update: replaced binary on disk, now v{} — restarting",
+                new_version
+            ));
+            // Give the HTTP response time to flush, then stop all managed
+            // children and relaunch ourselves from the same path. On
+            // Windows the running .exe was atomically renamed to *.old by
+            // self_replace, so spawning current_exe() picks up the *new*
+            // binary that was moved into place.
+            let mgr = manager.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                mgr.stop_all();
+                // Brief grace period for OS to reap child processes before
+                // the new instance tries to bind the same port.
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+                std::process::exit(0);
+            });
+            Json(OkResp { ok: true, error: Some(format!("Updated to v{}", new_version)) })
+        }
+        Err(e) => {
+            // Surface the full underlying cause (TLS error, proxy 403,
+            // AV-deleted file, permission denied on the install dir, …)
+            // both in the HTTP response *and* the in-app Server Logs so
+            // the user can copy/paste it for IT instead of just seeing
+            // "Update failed".
+            manager.log_server(&format!("update: failed: {}", e));
+            err_resp(e)
+        }
+    }
 }

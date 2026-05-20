@@ -32,6 +32,10 @@ futures-util = "0.3"
 async-stream = "0.3"
 ureq = { version = "2", default-features = false, features = ["native-tls", "json"] }
 native-tls = "0.2"
+# In-app self-update: downloads the matching GitHub release asset, replaces
+# the running binary, and (with our endpoint) restarts. Uses rustls so we
+# don't drag in OpenSSL on Linux just for the updater.
+self_update = { version = "0.41", default-features = false, features = ["archive-tar", "compression-flate2", "rustls"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [
