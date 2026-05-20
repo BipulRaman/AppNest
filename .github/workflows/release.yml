@@ -122,24 +122,30 @@ jobs:
 
       - name: Configure MinGW (Windows)
         if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+
+      - name: Put MinGW64 on PATH (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $candidates = @(
-            "C:\ProgramData\mingw64\mingw64\bin",
-            "C:\ProgramData\Chocolatey\bin",
-            "C:\msys64\mingw64\bin"
-          )
-          foreach ($p in $candidates) {
-            if (Test-Path $p) {
-              Add-Content $env:GITHUB_PATH $p
-              Write-Host "MinGW found at: $p"
-              break
-            }
-          }
-          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
-            Write-Host "No preinstalled MinGW found, installing via choco..."
-            choco install mingw -y --no-progress
-          }
+          # Expose the MSYS2 MinGW64 bin dir so cargo/rustc and embed-resource
+          # pick up the matching 64-bit gcc, ld, ar AND windres. Using a
+          # mismatched (32-bit) windres produces a COFF object that the
+          # x86_64 linker rejects with "file format not recognized".
+          $mingwBin = "${env:RUNNER_TEMP}\msys64\mingw64\bin"
+          if (-not (Test-Path $mingwBin)) { $mingwBin = "D:\a\_temp\msys64\mingw64\bin" }
+          if (-not (Test-Path $mingwBin)) { $mingwBin = "C:\msys64\mingw64\bin" }
+          Add-Content $env:GITHUB_PATH $mingwBin
+          Write-Host "Using MinGW64 from: $mingwBin"
+          & "$mingwBin\gcc.exe" --version
+          & "$mingwBin\windres.exe" --version
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
