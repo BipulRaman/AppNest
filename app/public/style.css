@@ -702,6 +702,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .update-banner svg{width:18px;height:18px;color:var(--accent);flex-shrink:0}
 .update-banner #updateBannerText{line-height:1.3}
 .update-banner .btn-sm{margin-left:4px}
+/* "Update downloaded — restart to finish" state. Recoloured so the user
+   can't miss that the action they need to take has changed. */
+.update-banner.update-banner-ready{
+  border-left-color:#16a34a;
+  background:color-mix(in srgb, #16a34a 8%, var(--card));
+}
+.update-banner.update-banner-ready svg{color:#16a34a}
 .theme-toggle.is-checking svg{animation:spin 1s linear infinite;transform-origin:50% 50%}
 
 /* ━━━ Scrollbar ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */

@@ -39,7 +39,12 @@ fn main() {
 
     // Give the server a brief moment to bind before launching the browser.
     std::thread::sleep(Duration::from_millis(250));
-    let _ = open::that("http://localhost:1234");
+    // The in-app updater restarts us with APPNEST_NO_OPEN=1 so we don't
+    // pop a second browser tab on top of the one the user already has open
+    // (which is polling and will reload itself once we're reachable).
+    if std::env::var_os("APPNEST_NO_OPEN").is_none() {
+        let _ = open::that("http://localhost:1234");
+    }
 
     #[cfg(target_os = "windows")]
     run_with_tray(manager, rt_handle);

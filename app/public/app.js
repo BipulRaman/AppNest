@@ -1305,6 +1305,67 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ─── Update check ───────────────────────────────────
+// Swaps the existing "update available" banner into a clearly different
+// "update downloaded — restart to finish" state. The user explicitly opts
+// in to the restart so we never kill their running apps without consent.
+function showRestartReadyBanner(version) {
+  const banner = document.getElementById('updateBanner');
+  const text = document.getElementById('updateBannerText');
+  if (!banner) return;
+  banner.classList.add('update-banner-ready');
+  if (text) text.innerHTML = `<strong>Update v${version} downloaded.</strong> Restart AppNest to finish the update.`;
+  // Hide the now-irrelevant pre-install buttons.
+  for (const id of ['btnInstallUpdate', 'btnOpenUpdate', 'btnCopyUpdateError']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  // Re-use the dismiss button as "Later".
+  const dismiss = document.getElementById('btnDismissUpdate');
+  if (dismiss) dismiss.title = 'Restart later';
+  // Inject (or re-use) the prominent Restart-now button.
+  let restartBtn = document.getElementById('btnRestartUpdate');
+  if (!restartBtn) {
+    restartBtn = document.createElement('button');
+    restartBtn.id = 'btnRestartUpdate';
+    restartBtn.className = 'btn btn-primary btn-sm';
+    restartBtn.textContent = 'Restart now';
+    if (text && text.parentNode) text.parentNode.insertBefore(restartBtn, text.nextSibling);
+  }
+  restartBtn.style.display = '';
+  restartBtn.disabled = false;
+  restartBtn.onclick = async () => {
+    if (!confirm('Restart AppNest now?\n\nAll running apps will be stopped, then the new version will start.')) return;
+    restartBtn.disabled = true;
+    if (text) text.innerHTML = `<strong>Restarting into v${version}…</strong> The dashboard will reload automatically when ready.`;
+    try {
+      const res = await api('/api/update-restart', 'POST', {});
+      if (!res || res.ok !== true) {
+        restartBtn.disabled = false;
+        const msg = (res && res.error) || 'unknown error';
+        if (text) text.textContent = `Restart failed: ${msg}`;
+        toast('Restart failed: ' + msg, 'error');
+        return;
+      }
+    } catch (err) {
+      // The server may tear down before flushing — that's expected. Fall
+      // through to the poll loop below.
+    }
+    // Poll until the new instance is reachable, then reload the dashboard.
+    const started = Date.now();
+    const probe = setInterval(async () => {
+      if (Date.now() - started > 30000) {
+        clearInterval(probe);
+        if (text) text.textContent = `Restart is taking longer than expected. Try reloading the page manually.`;
+        return;
+      }
+      try {
+        const r = await fetch('/api/update-check', { cache: 'no-store' });
+        if (r.ok) { clearInterval(probe); location.reload(); }
+      } catch (e) { /* server still down, keep polling */ }
+    }, 1000);
+  };
+}
+
 async function checkForUpdates(manual = false) {
   const btn = document.getElementById('btnCheckUpdate');
   if (manual && btn) { btn.disabled = true; btn.classList.add('is-checking'); }
@@ -1335,7 +1396,7 @@ async function checkForUpdates(manual = false) {
     };
     const installBtn = document.getElementById('btnInstallUpdate');
     if (installBtn) installBtn.onclick = async () => {
-      if (!confirm(`Install version ${info.latest}?\n\nAll running apps will be stopped and AppNest will restart automatically.`)) return;
+      if (!confirm(`Download and install version ${info.latest}?\n\nThe update will be downloaded now. You'll be prompted to restart AppNest after the download completes — running apps stay running until then.`)) return;
       installBtn.disabled = true;
       const openBtn2 = document.getElementById('btnOpenUpdate');
       if (openBtn2) openBtn2.disabled = true;
@@ -1371,17 +1432,11 @@ async function checkForUpdates(manual = false) {
           toast('Update failed — see banner for details', 'error');
           return;
         }
-        if (txt) txt.textContent = `Installed ${info.latest}. Restarting AppNest…`;
-        toast('Update installed — restarting…', 'success');
-        // Poll for the new instance coming back up, then reload.
-        const started = Date.now();
-        const probe = setInterval(async () => {
-          if (Date.now() - started > 30000) { clearInterval(probe); return; }
-          try {
-            const r = await fetch('/api/update-check', { cache: 'no-store' });
-            if (r.ok) { clearInterval(probe); location.reload(); }
-          } catch (e) { /* server still down, keep polling */ }
-        }, 1000);
+        // Download succeeded. The new binary is on disk; the user must
+        // explicitly restart so we don't kill any in-progress work in
+        // their managed apps.
+        showRestartReadyBanner(info.latest);
+        toast('Update downloaded — restart to finish', 'success');
       } catch (err) {
         installBtn.disabled = false;
         if (openBtn2) openBtn2.disabled = false;

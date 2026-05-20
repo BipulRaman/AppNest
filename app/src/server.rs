@@ -62,16 +62,36 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/update-check", get(check_update))
         .route("/api/update-open", post(open_update_page))
         .route("/api/update-apply", post(apply_update))
+        .route("/api/update-restart", post(restart_after_update))
         .route("/api/logs", get(get_server_logs))
         .fallback(static_handler)
         .layer(middleware::from_fn(require_csrf_header))
         .with_state(manager);
 
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:1234").await {
-        Ok(l) => l,
-        Err(e) => {
+    // Bind with a short retry loop. When the updater respawns us, the
+    // previous process may still be holding 127.0.0.1:1234 in TIME_WAIT /
+    // pending close for a brief moment. Failing the bind immediately would
+    // leave the dashboard tab forever-loading; instead we wait up to ~5s.
+    let mut listener = None;
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 0..50u32 {
+        match tokio::net::TcpListener::bind("127.0.0.1:1234").await {
+            Ok(l) => { listener = Some(l); break; }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt == 0 {
+                    mgr_for_log.log_server("server: port 1234 busy, retrying…");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+    let listener = match listener {
+        Some(l) => l,
+        None => {
+            let e = last_err.map(|e| e.to_string()).unwrap_or_else(|| "unknown".into());
             eprintln!("Failed to bind port 1234: {}", e);
-            mgr_for_log.log_server(&format!("server: failed to bind 127.0.0.1:1234: {}", e));
+            mgr_for_log.log_server(&format!("server: failed to bind 127.0.0.1:1234 after retries: {}", e));
             return;
         }
     };
@@ -1164,18 +1184,18 @@ async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
     match result {
         Ok(new_version) => {
             manager.log_server(&format!(
-                "update: replaced binary on disk, now v{} — restarting",
+                "update: replaced binary on disk, now v{} — awaiting user-initiated restart",
                 new_version
             ));
 
             // If the user launched a release-page download whose filename
             // encodes the old version (e.g. `appnest-1.1.1-windows-x86_64.exe`),
-            // rename the file on disk so the filename stays truthful. NTFS
-            // allows renaming a currently-running executable. We still spawn
-            // the *new* path on restart so the next self-check sees the
-            // correct name. Any taskbar / Start-menu shortcut pinned to the
-            // old name will need to be re-pinned — this is the deliberate
-            // trade-off of Option A.
+            // rename the file on disk so the filename stays truthful.
+            // NTFS/POSIX both allow renaming a running executable. We
+            // remember the resulting path so the deferred restart spawns
+            // the right binary — `std::env::current_exe()` on Windows
+            // still returns the *original* name after a rename because the
+            // path is captured into the PEB at process start.
             let restart_path = match rename_versioned_exe(&new_version) {
                 Ok(p) => {
                     if let Ok(orig) = std::env::current_exe() {
@@ -1195,22 +1215,27 @@ async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
                 }
             };
 
-            // Give the HTTP response time to flush, then stop all managed
-            // children and relaunch ourselves. On Windows the running .exe
-            // was atomically renamed to *.old by self_replace, so spawning
-            // the (possibly renamed) path picks up the *new* binary that
-            // was moved into place.
-            let mgr = manager.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(750)).await;
-                mgr.stop_all();
-                // Brief grace period for OS to reap child processes before
-                // the new instance tries to bind the same port.
-                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                let _ = std::process::Command::new(&restart_path).spawn();
-                std::process::exit(0);
-            });
-            Json(OkResp { ok: true, error: Some(format!("Updated to v{}", new_version)) })
+            // Park the new version + restart path so /api/update-restart
+            // (and the in-process tray menu, if we wire one) can pick it
+            // up later. We deliberately do NOT auto-restart here — the
+            // user may have unsaved work in apps we manage, so the UI
+            // shows a clear "Restart to finish the update" prompt and the
+            // restart only happens when they click it.
+            {
+                let mut slot = pending_restart_slot().lock().unwrap();
+                *slot = Some(PendingRestart {
+                    version: new_version.clone(),
+                    exe_path: restart_path,
+                });
+            }
+
+            Json(OkResp {
+                ok: true,
+                error: Some(format!(
+                    "Update v{} downloaded. Restart AppNest to finish.",
+                    new_version
+                )),
+            })
         }
         Err(e) => {
             // Surface the full underlying cause (TLS error, proxy 403,
@@ -1222,4 +1247,54 @@ async fn apply_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
             err_resp(e)
         }
     }
+}
+
+#[derive(Clone)]
+struct PendingRestart {
+    version: String,
+    exe_path: std::path::PathBuf,
+}
+
+fn pending_restart_slot() -> &'static std::sync::Mutex<Option<PendingRestart>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Option<PendingRestart>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Stops all managed apps and respawns AppNest from the binary that
+/// [`apply_update`] just put on disk. No-ops (with an error response) if no
+/// update is pending, so a stray POST can't kill the dashboard.
+async fn restart_after_update(State(manager): State<Arc<AppManager>>) -> Json<OkResp> {
+    let pending = pending_restart_slot().lock().unwrap().clone();
+    let Some(pending) = pending else {
+        return err_resp("no update is pending — nothing to restart for");
+    };
+
+    manager.log_server(&format!(
+        "update: user confirmed restart into v{} ({})",
+        pending.version,
+        pending.exe_path.display()
+    ));
+
+    let mgr = manager.clone();
+    tokio::spawn(async move {
+        // Flush the HTTP response before tearing the world down.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        mgr.stop_all();
+        // Brief grace period for OS to reap child processes before the new
+        // instance tries to bind the same port.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        // APPNEST_NO_OPEN=1 tells the child not to pop a new browser tab —
+        // the user already has the dashboard open and it polls itself back
+        // to life once the new server answers.
+        let _ = std::process::Command::new(&pending.exe_path)
+            .env("APPNEST_NO_OPEN", "1")
+            .spawn();
+        std::process::exit(0);
+    });
+
+    Json(OkResp {
+        ok: true,
+        error: Some(format!("Restarting into v{}…", pending.version)),
+    })
 }
