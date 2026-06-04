@@ -1601,6 +1601,172 @@ function confirmDialog({ title = 'Are you sure?', message = '', confirmLabel = '
   });
 }
 
+// ─── Profiles ───────────────────────────────
+let profiles = [];
+let editingProfileId = null;
+
+const CHECK_SVG = '<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+const STAR_SVG = '<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+const TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+
+async function loadProfiles() {
+  try { profiles = await api('/api/profiles'); }
+  catch (e) { return; }
+  renderProfileSwitcher();
+  const modal = document.getElementById('profilesModal');
+  if (modal && !modal.classList.contains('hidden')) renderProfilesList();
+}
+
+function renderProfileSwitcher() {
+  const active = profiles.find(p => p.isActive) || profiles[0];
+  const nameEl = document.getElementById('profileBtnName');
+  if (nameEl && active) nameEl.textContent = active.name;
+  const list = document.getElementById('profileMenuList');
+  if (!list) return;
+  list.innerHTML = profiles.map(p => `
+    <button class="profile-menu-item${p.isActive ? ' active' : ''}" type="button" role="menuitem" data-id="${esc(p.id)}">
+      ${p.isActive ? CHECK_SVG : '<span class="check-spacer"></span>'}
+      <span class="profile-menu-name">${esc(p.name)}</span>
+      ${p.isDefault ? '<span class="profile-badge">default</span>' : ''}
+    </button>`).join('');
+  list.querySelectorAll('.profile-menu-item').forEach(el => {
+    el.addEventListener('click', () => switchProfile(el.dataset.id));
+  });
+}
+
+function toggleProfileMenu(force) {
+  const menu = document.getElementById('profileMenu');
+  const btn = document.getElementById('profileBtn');
+  if (!menu || !btn) return;
+  const show = force !== undefined ? force : menu.classList.contains('hidden');
+  menu.classList.toggle('hidden', !show);
+  btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+
+async function switchProfile(id) {
+  toggleProfileMenu(false);
+  const active = profiles.find(p => p.isActive);
+  if (active && active.id === id) return;
+  try { await api(`/api/profiles/${encodeURIComponent(id)}/activate`, 'POST'); }
+  catch (e) { toast(e.message || 'Failed to switch profile', 'error'); return; }
+  const p = profiles.find(p => p.id === id);
+  toast(`Switched to "${p ? p.name : id}"`, 'success');
+  await loadProfiles();
+  await loadApps();
+}
+
+function openProfilesModal() {
+  toggleProfileMenu(false);
+  editingProfileId = null;
+  document.getElementById('profilesModal').classList.remove('hidden');
+  renderProfilesList();
+  const inp = document.getElementById('newProfileName');
+  if (inp) inp.value = '';
+}
+
+function renderProfilesList() {
+  const box = document.getElementById('profilesList');
+  if (!box) return;
+  box.innerHTML = profiles.map(p => {
+    if (p.id === editingProfileId) {
+      return `<div class="profile-item editing" data-id="${esc(p.id)}">
+        <input class="profile-rename-input" id="renameInput" type="text" value="${esc(p.name)}" autocomplete="off"/>
+        <div class="profile-item-actions">
+          <button class="btn btn-accent btn-sm" type="button" data-act="save">Save</button>
+          <button class="btn btn-flat btn-sm" type="button" data-act="cancel">Cancel</button>
+        </div>
+      </div>`;
+    }
+    const canDelete = !p.isActive && profiles.length > 1;
+    return `<div class="profile-item${p.isActive ? ' active' : ''}" data-id="${esc(p.id)}">
+      <span class="profile-item-name">${esc(p.name)}${p.isActive ? ' <span class="profile-badge">active</span>' : ''}${p.isDefault ? ' <span class="profile-badge subtle">default</span>' : ''}</span>
+      <div class="profile-item-actions">
+        <button class="icon-btn${p.isDefault ? ' is-default' : ''}" type="button" data-act="default" title="${p.isDefault ? 'Default profile' : 'Set as default'}"${p.isDefault ? ' disabled' : ''}>${STAR_SVG}</button>
+        <button class="icon-btn" type="button" data-act="rename" title="Rename">${PENCIL_SVG}</button>
+        <button class="icon-btn" type="button" data-act="delete" title="${canDelete ? 'Delete profile' : 'Cannot delete the active or only profile'}"${canDelete ? '' : ' disabled'}>${TRASH_SVG}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('.profile-item').forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector('[data-act="default"]')?.addEventListener('click', () => setDefaultProfile(id));
+    row.querySelector('[data-act="rename"]')?.addEventListener('click', () => { editingProfileId = id; renderProfilesList(); });
+    row.querySelector('[data-act="delete"]')?.addEventListener('click', () => deleteProfile(id));
+    row.querySelector('[data-act="save"]')?.addEventListener('click', saveRename);
+    row.querySelector('[data-act="cancel"]')?.addEventListener('click', () => { editingProfileId = null; renderProfilesList(); });
+  });
+
+  if (editingProfileId) {
+    const inp = document.getElementById('renameInput');
+    if (inp) {
+      inp.focus(); inp.select();
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); saveRename(); }
+        else if (e.key === 'Escape') { e.preventDefault(); editingProfileId = null; renderProfilesList(); }
+      });
+    }
+  }
+}
+
+async function saveRename() {
+  const inp = document.getElementById('renameInput');
+  if (!inp || !editingProfileId) return;
+  const name = inp.value.trim();
+  const id = editingProfileId;
+  if (!name) { toast('Name is required', 'error'); return; }
+  try { await api(`/api/profiles/${encodeURIComponent(id)}`, 'PUT', { name }); }
+  catch (e) { toast(e.message, 'error'); return; }
+  editingProfileId = null;
+  await loadProfiles();
+}
+
+async function setDefaultProfile(id) {
+  try { await api(`/api/profiles/${encodeURIComponent(id)}`, 'PUT', { isDefault: true }); }
+  catch (e) { toast(e.message, 'error'); return; }
+  await loadProfiles();
+}
+
+async function deleteProfile(id) {
+  const p = profiles.find(p => p.id === id);
+  const ok = await confirmDialog({
+    title: 'Delete profile?',
+    message: `This permanently deletes "${p ? p.name : id}" along with all of its apps and logs. This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  try { await api(`/api/profiles/${encodeURIComponent(id)}`, 'DELETE'); }
+  catch (e) { toast(e.message, 'error'); return; }
+  toast('Profile deleted', 'success');
+  await loadProfiles();
+}
+
+async function createProfile(name) {
+  name = (name || '').trim();
+  if (!name) { toast('Name is required', 'error'); return; }
+  try { await api('/api/profiles', 'POST', { name }); }
+  catch (e) { toast(e.message, 'error'); return; }
+  const inp = document.getElementById('newProfileName');
+  if (inp) inp.value = '';
+  toast(`Created profile "${name}"`, 'success');
+  await loadProfiles();
+}
+
+document.getElementById('profileBtn')?.addEventListener('click', (e) => { e.stopPropagation(); toggleProfileMenu(); });
+document.getElementById('btnManageProfiles')?.addEventListener('click', openProfilesModal);
+document.getElementById('newProfileForm')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  createProfile(document.getElementById('newProfileName').value);
+});
+document.getElementById('profilesModal')?.querySelector('.overlay-bg')?.addEventListener('click', () => closeModal('profilesModal'));
+document.addEventListener('click', (e) => {
+  const sw = document.getElementById('profileSwitcher');
+  if (sw && !sw.contains(e.target)) toggleProfileMenu(false);
+});
+loadProfiles();
+
 // ─── Command palette ────────────────────────
 let paletteItems = [];
 let paletteActiveIdx = 0;

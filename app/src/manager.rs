@@ -235,6 +235,47 @@ pub struct AppResponse {
     pub color: Option<String>,
 }
 
+// ─── Profiles ───────────────────────────────────────────────────────
+//
+// Each profile is an isolated workspace with its own apps.json and logs/
+// directory under `<AppNest>/profiles/<id>/`. A single `profiles.json`
+// registry tracks the known profiles, which one is the default (loaded at
+// launch) and which one is currently active. Profiles can be switched at
+// runtime without restarting the app — see `switch_profile`.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileMeta {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ProfileRegistry {
+    profiles: Vec<ProfileMeta>,
+    default_id: String,
+    active_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResponse {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+    pub is_active: bool,
+}
+
+/// Filesystem paths for the currently active profile. Held behind a Mutex so
+/// `switch_profile` can swap them at runtime while other tasks read them via
+/// the `data_file()` / `logs_dir()` accessors.
+struct ProfilePaths {
+    active_id: String,
+    data_file: PathBuf,
+    logs_dir: PathBuf,
+}
+
 // ─── App Manager ────────────────────────────────────────────────────
 
 pub struct AppManager {
@@ -242,8 +283,14 @@ pub struct AppManager {
     /// Serializes save() calls so concurrent writers can't race on the
     /// apps.json.tmp → apps.json rename and silently lose updates.
     save_lock: Mutex<()>,
-    data_file: PathBuf,
-    logs_dir: PathBuf,
+    /// Root AppNest directory (`%APPDATA%/AppNest`). Holds `profiles.json`
+    /// and the `profiles/` subtree.
+    base_dir: PathBuf,
+    /// Paths for the active profile. Swapped atomically on profile switch.
+    paths: Mutex<ProfilePaths>,
+    /// Known profiles plus default/active selection, mirrored to
+    /// `profiles.json`.
+    registry: Mutex<ProfileRegistry>,
     rt_handle: Handle,
     /// Set true if `load()` couldn't parse apps.json. While set, `save()`
     /// becomes a no-op so we don't overwrite a config we couldn't read.
@@ -260,8 +307,15 @@ impl AppManager {
         });
 
         let base_dir = app_data.join("AppNest");
-        let data_file = base_dir.join("apps.json");
-        let logs_dir = base_dir.join("logs");
+        let _ = fs::create_dir_all(base_dir.join("profiles"));
+
+        // Load the profile registry, bootstrapping it (and migrating any
+        // legacy top-level apps.json / logs) on first run.
+        let registry = load_or_init_registry(&base_dir);
+        let active_id = registry.active_id.clone();
+        let prof_dir = base_dir.join("profiles").join(&active_id);
+        let data_file = prof_dir.join("apps.json");
+        let logs_dir = prof_dir.join("logs");
         let _ = fs::create_dir_all(&logs_dir);
 
         Self {
@@ -270,23 +324,40 @@ impl AppManager {
                 next_id: 1,
             }),
             save_lock: Mutex::new(()),
-            data_file,
-            logs_dir,
+            base_dir,
+            paths: Mutex::new(ProfilePaths {
+                active_id,
+                data_file,
+                logs_dir,
+            }),
+            registry: Mutex::new(registry),
             rt_handle,
             corrupt_load_lock: AtomicBool::new(false),
         }
     }
 
+    /// Path to the active profile's apps.json. Cloned out so callers don't
+    /// hold the paths lock across disk IO.
+    fn data_file(&self) -> PathBuf {
+        self.paths.lock().unwrap().data_file.clone()
+    }
+
+    /// Path to the active profile's logs directory.
+    fn logs_dir(&self) -> PathBuf {
+        self.paths.lock().unwrap().logs_dir.clone()
+    }
+
     pub fn load(&self) {
-        let dir = self.data_file.parent().unwrap();
+        let data_file = self.data_file();
+        let dir = data_file.parent().unwrap();
         let _ = fs::create_dir_all(dir);
-        if !self.data_file.exists() {
+        if !data_file.exists() {
             return;
         }
-        let content = match fs::read_to_string(&self.data_file) {
+        let content = match fs::read_to_string(&data_file) {
             Ok(c) => c,
             Err(e) => {
-                self.log_server(&format!("load: failed to read {}: {} — keeping existing state", self.data_file.display(), e));
+                self.log_server(&format!("load: failed to read {}: {} — keeping existing state", data_file.display(), e));
                 self.corrupt_load_lock.store(true, Ordering::SeqCst);
                 return;
             }
@@ -298,11 +369,11 @@ impl AppManager {
                 // so the user can recover it, mark the manager as "load failed"
                 // so subsequent save() calls become no-ops, and surface the
                 // problem in the server log instead of silently wiping data.
-                let backup = self.data_file.with_extension(format!(
+                let backup = data_file.with_extension(format!(
                     "corrupt-{}.json",
                     now_secs()
                 ));
-                let _ = fs::copy(&self.data_file, &backup);
+                let _ = fs::copy(&data_file, &backup);
                 self.log_server(&format!(
                     "load: apps.json is corrupt ({}). Backed up to {}. Saves are disabled until file is fixed or removed.",
                     e, backup.display()
@@ -387,20 +458,21 @@ impl AppManager {
                 return;
             }
         };
-        if let Some(parent) = self.data_file.parent() {
+        if let Some(parent) = self.data_file().parent() {
             let _ = fs::create_dir_all(parent);
         }
         // Write atomically: write to a tmp file then rename, so a crash
         // mid-write can never leave a half-written apps.json on disk.
-        let tmp = self.data_file.with_extension("json.tmp");
+        let data_file = self.data_file();
+        let tmp = data_file.with_extension("json.tmp");
         if let Err(e) = fs::write(&tmp, &json) {
             self.log_server(&format!("save: write tmp failed: {}", e));
             return;
         }
-        if let Err(e) = fs::rename(&tmp, &self.data_file) {
+        if let Err(e) = fs::rename(&tmp, &data_file) {
             // Some Windows AV tools transiently lock the destination during
             // rename; fall back to a direct write so we don't lose the change.
-            let _ = fs::write(&self.data_file, &json);
+            let _ = fs::write(&data_file, &json);
             self.log_server(&format!("save: rename failed (used direct write): {}", e));
         }
     }
@@ -1542,6 +1614,154 @@ impl AppManager {
         kill_tree_batch(&all_pids);
     }
 
+    // ── Profiles ────────────────────────────────────────────────
+
+    pub fn list_profiles(&self) -> Vec<ProfileResponse> {
+        let reg = self.registry.lock().unwrap();
+        reg.profiles
+            .iter()
+            .map(|p| ProfileResponse {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                is_default: p.id == reg.default_id,
+                is_active: p.id == reg.active_id,
+            })
+            .collect()
+    }
+
+    pub fn create_profile(&self, name: &str) -> Result<ProfileResponse, String> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("Profile name is required".into());
+        }
+        let mut reg = self.registry.lock().unwrap();
+        // Derive a filesystem-safe id from the name, de-duplicating against
+        // existing ids so two "My Stuff" profiles don't collide on disk.
+        let base_slug = {
+            let s = slugify(&name);
+            if s.is_empty() { "profile".to_string() } else { s }
+        };
+        let mut id = base_slug.clone();
+        let mut n = 2u32;
+        while reg.profiles.iter().any(|p| p.id == id) {
+            id = format!("{}-{}", base_slug, n);
+            n += 1;
+        }
+        let prof_dir = self.base_dir.join("profiles").join(&id);
+        if let Err(e) = fs::create_dir_all(prof_dir.join("logs")) {
+            return Err(format!("Failed to create profile folder: {}", e));
+        }
+        reg.profiles.push(ProfileMeta { id: id.clone(), name: name.clone() });
+        let _ = persist_registry(&self.base_dir, &reg);
+        Ok(ProfileResponse {
+            is_default: reg.default_id == id,
+            is_active: reg.active_id == id,
+            id,
+            name,
+        })
+    }
+
+    pub fn rename_profile(&self, id: &str, name: &str) -> Result<(), String> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("Profile name is required".into());
+        }
+        let mut reg = self.registry.lock().unwrap();
+        let p = reg
+            .profiles
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or("Profile not found")?;
+        p.name = name;
+        let _ = persist_registry(&self.base_dir, &reg);
+        Ok(())
+    }
+
+    pub fn set_default_profile(&self, id: &str) -> Result<(), String> {
+        let mut reg = self.registry.lock().unwrap();
+        if !reg.profiles.iter().any(|p| p.id == id) {
+            return Err("Profile not found".into());
+        }
+        reg.default_id = id.to_string();
+        let _ = persist_registry(&self.base_dir, &reg);
+        Ok(())
+    }
+
+    pub fn delete_profile(&self, id: &str) -> Result<(), String> {
+        let mut reg = self.registry.lock().unwrap();
+        if reg.profiles.len() <= 1 {
+            return Err("Cannot delete the last profile".into());
+        }
+        if reg.active_id == id {
+            return Err("Cannot delete the active profile".into());
+        }
+        let pos = reg
+            .profiles
+            .iter()
+            .position(|p| p.id == id)
+            .ok_or("Profile not found")?;
+        reg.profiles.remove(pos);
+        // If we just removed the default, fall back to the active profile so
+        // the registry never points `default_id` at a missing profile.
+        if reg.default_id == id {
+            reg.default_id = reg.active_id.clone();
+        }
+        let _ = persist_registry(&self.base_dir, &reg);
+        drop(reg);
+        // Remove the profile's data on disk. `id` came from our own registry
+        // (slugified, never user path input) so this join is safe.
+        let prof_dir = self.base_dir.join("profiles").join(id);
+        let _ = fs::remove_dir_all(&prof_dir);
+        Ok(())
+    }
+
+    /// Switch the active profile at runtime — no restart required.
+    ///
+    /// Stops every app in the current profile, persists its state, swaps the
+    /// on-disk paths to the target profile, then reloads the new profile's
+    /// app list into memory. Per product decision, apps in the new profile
+    /// are NOT auto-started here; the user starts them manually.
+    pub fn switch_profile(&self, id: &str) -> Result<(), String> {
+        {
+            let reg = self.registry.lock().unwrap();
+            if !reg.profiles.iter().any(|p| p.id == id) {
+                return Err("Profile not found".into());
+            }
+            if reg.active_id == id {
+                return Ok(());
+            }
+        }
+        // 1. Stop everything belonging to the current profile.
+        self.stop_all();
+        // 2. Persist current profile state before we move off it.
+        self.save();
+        // 3. Swap the active paths to the target profile.
+        let prof_dir = self.base_dir.join("profiles").join(id);
+        let logs_dir = prof_dir.join("logs");
+        let _ = fs::create_dir_all(&logs_dir);
+        {
+            let mut paths = self.paths.lock().unwrap();
+            paths.active_id = id.to_string();
+            paths.data_file = prof_dir.join("apps.json");
+            paths.logs_dir = logs_dir;
+        }
+        {
+            let mut reg = self.registry.lock().unwrap();
+            reg.active_id = id.to_string();
+            let _ = persist_registry(&self.base_dir, &reg);
+        }
+        // 4. Drop the old profile's in-memory apps and load the new one.
+        {
+            let mut state = self.state.lock().unwrap();
+            state.apps.clear();
+            state.next_id = 1;
+        }
+        // Re-enable saves; load() re-disables them if the new file is corrupt.
+        self.corrupt_load_lock.store(false, Ordering::SeqCst);
+        self.load();
+        Ok(())
+    }
+
     // ── File-based Logs ─────────────────────────────────────────
 
     fn app_log_name(&self, id: u32) -> String {
@@ -1554,7 +1774,7 @@ impl AppManager {
     }
 
     fn log_file_path_for(&self, name: &str) -> PathBuf {
-        self.logs_dir.join(format!("{}.log", name))
+        self.logs_dir().join(format!("{}.log", name))
     }
 
     pub fn append_log(&self, id: u32, line: &str) {
@@ -1591,7 +1811,7 @@ impl AppManager {
     }
 
     pub fn get_server_log(&self) -> String {
-        let path = self.logs_dir.join("server.log");
+        let path = self.logs_dir().join("server.log");
         if path.exists() { tail_file(&path, 256 * 1024) } else { String::new() }
     }
 
@@ -1601,7 +1821,7 @@ impl AppManager {
         // the server.log handle (especially on Windows where another process
         // tailing the file may briefly hold a sharing lock). Without a
         // retry, important entries get silently dropped under load.
-        let path = self.logs_dir.join("server.log");
+        let path = self.logs_dir().join("server.log");
         for attempt in 0..5u32 {
             match fs::OpenOptions::new().create(true).append(true).open(&path) {
                 Ok(mut f) => {
@@ -1921,6 +2141,96 @@ fn default_data_root() -> Option<PathBuf> {
             std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
         }
     }
+}
+
+/// Load the profile registry from `<base>/profiles.json`, or bootstrap it on
+/// first run. Bootstrapping creates a single "Default" profile and migrates
+/// any legacy top-level `apps.json` and `logs/` into it so existing users
+/// keep their apps after upgrading.
+fn load_or_init_registry(base_dir: &Path) -> ProfileRegistry {
+    let reg_path = base_dir.join("profiles.json");
+    if let Ok(content) = fs::read_to_string(&reg_path) {
+        if let Ok(mut reg) = serde_json::from_str::<ProfileRegistry>(&content) {
+            if !reg.profiles.is_empty() {
+                // Repair dangling default/active pointers rather than trust a
+                // hand-edited registry blindly.
+                if !reg.profiles.iter().any(|p| p.id == reg.default_id) {
+                    reg.default_id = reg.profiles[0].id.clone();
+                }
+                if !reg.profiles.iter().any(|p| p.id == reg.active_id) {
+                    reg.active_id = reg.default_id.clone();
+                }
+                return reg;
+            }
+        }
+    }
+
+    // Bootstrap a fresh "Default" profile.
+    let default_id = "default".to_string();
+    let prof_dir = base_dir.join("profiles").join(&default_id);
+    let new_logs = prof_dir.join("logs");
+    let _ = fs::create_dir_all(&new_logs);
+
+    // Migrate a legacy top-level apps.json into the default profile.
+    let legacy_apps = base_dir.join("apps.json");
+    let new_apps = prof_dir.join("apps.json");
+    if legacy_apps.exists() && !new_apps.exists() {
+        let _ = fs::rename(&legacy_apps, &new_apps);
+    }
+    // Migrate legacy top-level logs/* into the default profile's logs dir.
+    let legacy_logs = base_dir.join("logs");
+    if legacy_logs.is_dir() && legacy_logs != new_logs {
+        if let Ok(entries) = fs::read_dir(&legacy_logs) {
+            for e in entries.flatten() {
+                let dest = new_logs.join(e.file_name());
+                if !dest.exists() {
+                    let _ = fs::rename(e.path(), dest);
+                }
+            }
+        }
+        // Only succeeds if the directory is now empty — harmless otherwise.
+        let _ = fs::remove_dir(&legacy_logs);
+    }
+
+    let reg = ProfileRegistry {
+        profiles: vec![ProfileMeta {
+            id: default_id.clone(),
+            name: "Default".to_string(),
+        }],
+        default_id: default_id.clone(),
+        active_id: default_id,
+    };
+    let _ = persist_registry(base_dir, &reg);
+    reg
+}
+
+/// Persist the profile registry to `<base>/profiles.json` atomically.
+fn persist_registry(base_dir: &Path, reg: &ProfileRegistry) -> std::io::Result<()> {
+    let path = base_dir.join("profiles.json");
+    let json = serde_json::to_string_pretty(reg).unwrap_or_else(|_| "{}".to_string());
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &json)?;
+    fs::rename(&tmp, &path)
+}
+
+/// Turn a profile name into a lowercase, hyphen-separated, filesystem-safe id
+/// (e.g. "My Work Setup" → "my-work-setup"). Used as the on-disk folder name.
+fn slugify(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut prev_dash = false;
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !out.is_empty() && !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
 }
 
 fn now_secs() -> u64 {

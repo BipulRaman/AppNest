@@ -64,6 +64,9 @@ pub async fn run(manager: Arc<AppManager>) {
         .route("/api/update-apply", post(apply_update))
         .route("/api/update-restart", post(restart_after_update))
         .route("/api/logs", get(get_server_logs))
+        .route("/api/profiles", get(list_profiles).post(create_profile))
+        .route("/api/profiles/:id", put(update_profile).delete(delete_profile))
+        .route("/api/profiles/:id/activate", post(activate_profile))
         .fallback(static_handler)
         .layer(middleware::from_fn(require_csrf_header))
         .with_state(manager);
@@ -483,6 +486,71 @@ async fn export_app_logs(State(mgr): State<Arc<AppManager>>, Path(id): Path<u32>
 
 async fn get_server_logs(State(mgr): State<Arc<AppManager>>) -> impl IntoResponse {
     Json(LogResp { log: mgr.get_server_log() })
+}
+
+// ─── Profiles ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ProfileReq {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default, rename = "isDefault")]
+    is_default: Option<bool>,
+}
+
+async fn list_profiles(State(mgr): State<Arc<AppManager>>) -> impl IntoResponse {
+    Json(mgr.list_profiles())
+}
+
+async fn create_profile(
+    State(mgr): State<Arc<AppManager>>,
+    Json(body): Json<ProfileReq>,
+) -> impl IntoResponse {
+    let name = body.name.unwrap_or_default();
+    match mgr.create_profile(&name) {
+        Ok(p) => (StatusCode::OK, Json(p)).into_response(),
+        Err(e) => err(&e).into_response(),
+    }
+}
+
+/// PUT handles both rename (`name`) and set-default (`isDefault: true`). The
+/// dashboard sends whichever field changed; either or both may be present.
+async fn update_profile(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<String>,
+    Json(body): Json<ProfileReq>,
+) -> impl IntoResponse {
+    if let Some(name) = body.name {
+        if let Err(e) = mgr.rename_profile(&id, &name) {
+            return err(&e);
+        }
+    }
+    if body.is_default == Some(true) {
+        if let Err(e) = mgr.set_default_profile(&id) {
+            return err(&e);
+        }
+    }
+    ok("Profile updated")
+}
+
+async fn delete_profile(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match mgr.delete_profile(&id) {
+        Ok(()) => ok("Profile deleted"),
+        Err(e) => err(&e),
+    }
+}
+
+async fn activate_profile(
+    State(mgr): State<Arc<AppManager>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match mgr.switch_profile(&id) {
+        Ok(()) => ok("Profile activated"),
+        Err(e) => err(&e),
+    }
 }
 
 // ─── Native File Dialogs ────────────────────────────────────────────

@@ -24,6 +24,21 @@
     <div class="header-left">
       <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <h1>AppNest</h1>
+      <div class="profile-switcher" id="profileSwitcher">
+        <button class="profile-btn" id="profileBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Switch profile">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span id="profileBtnName">Default</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="profile-menu hidden" id="profileMenu" role="menu">
+          <div class="profile-menu-list" id="profileMenuList"></div>
+          <div class="profile-menu-sep"></div>
+          <button class="profile-menu-item profile-menu-manage" id="btnManageProfiles" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Manage profiles…
+          </button>
+        </div>
+      </div>
     </div>
     <div class="header-right">
       <button class="theme-toggle" id="btnCheckUpdate" title="Check for updates" aria-label="Check for updates">
@@ -83,6 +98,23 @@
           <button type="button" class="btn btn-flat" id="confirmCancel">Cancel</button>
           <button type="button" class="btn btn-danger" id="confirmOk">Confirm</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Manage Profiles ═══ -->
+  <div id="profilesModal" class="overlay hidden"><div class="overlay-bg"></div>
+    <div class="dialog dialog-sm">
+      <div class="dialog-head">
+        <h2>Manage Profiles</h2>
+        <button class="icon-btn" onclick="closeModal('profilesModal')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div id="profilesList" class="profiles-list"></div>
+        <form id="newProfileForm" class="profile-new-row" autocomplete="off">
+          <input type="text" id="newProfileName" placeholder="New profile name…" autocomplete="off"/>
+          <button type="submit" class="btn btn-accent btn-sm">Add profile</button>
+        </form>
       </div>
     </div>
   </div>
